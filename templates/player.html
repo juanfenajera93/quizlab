@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Unirse — QuizLab{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/player.css">
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="player-wrap">
+
+  <!-- ── JOIN ── -->
+  <div id="join-view" class="pview active" style="flex-direction:column">
+    <div class="join-header">
+      <a href="/" class="logo">Quiz<span>Lab</span></a>
+      <p>Ingresa el código de sala y tu apodo</p>
+    </div>
+
+    <div class="join-form">
+      <div id="join-error" class="error-banner"></div>
+
+      <div class="field">
+        <label for="room-input">Código de Sala</label>
+        <div class="room-input-row">
+          <input type="text" id="room-input"
+                 value="{{ room_code }}"
+                 placeholder="ABC123"
+                 maxlength="6"
+                 autocomplete="off"
+                 autocapitalize="characters"
+                 spellcheck="false"
+                 oninput="this.value=this.value.toUpperCase()">
+          <button class="room-clear-btn" onclick="document.getElementById('room-input').value='';document.getElementById('room-input').focus()">✕</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="nickname-input">Apodo</label>
+        <input type="text" id="nickname-input"
+               placeholder="Tu nombre"
+               maxlength="20"
+               autocomplete="off"
+               autocapitalize="words">
+      </div>
+
+      <button class="btn btn-primary join-btn" onclick="joinGame()">Unirse →</button>
+    </div>
+  </div>
+
+  <!-- ── WAITING ROOM ── -->
+  <div id="waiting-view" class="pview" style="flex-direction:column">
+    <div class="waiting-header">
+      <h1>¡Estás dentro!</h1>
+      <div class="nickname-display" id="my-nickname"></div>
+      <div class="room-code-pill" id="waiting-room-code"></div>
+    </div>
+
+    <div class="waiting-pulse">
+      <div class="dot-pulse">
+        <span></span><span></span><span></span>
+      </div>
+      <span id="waiting-pulse-text">Esperando al host...</span>
+    </div>
+
+    <div class="waiting-players">
+      <h3>Jugadores (<span id="waiting-player-count">0</span>)</h3>
+      <div class="waiting-player-list" id="waiting-player-list"></div>
+    </div>
+  </div>
+
+  <!-- ── QUESTION ── -->
+  <div id="question-view" class="pview" style="flex-direction:column">
+    <div class="question-header">
+      <span class="q-number-label" id="q-num-label">P1/1</span>
+
+      <!-- Fix 2: timer ring (always present, hidden during read phase via JS) -->
+      <svg class="player-timer-ring" viewBox="0 0 100 100">
+        <circle class="ring-track" cx="50" cy="50" r="45"/>
+        <circle id="player-timer-progress" class="ring-progress" cx="50" cy="50" r="45"
+                stroke-dasharray="282.74" stroke-dashoffset="0"
+                transform="rotate(-90 50 50)"/>
+        <text id="player-timer-num" class="ring-number" x="50" y="50">—</text>
+      </svg>
+    </div>
+
+    <p id="player-q-text" class="player-q-text"></p>
+    <img id="player-q-image" class="player-q-image" src="" alt="" style="display:none">
+
+    <!-- Fix 5: Read phase bar (shown during read phase) -->
+    <div id="player-read-bar" class="player-read-bar">
+      <span class="player-read-label">Lee la pregunta...</span>
+      <div class="player-read-track">
+        <div id="player-read-fill" class="player-read-fill"></div>
+      </div>
+    </div>
+
+    <div id="player-answers" class="player-answers"></div>
+
+    <!-- Answered overlay -->
+    <div id="answered-overlay" class="answered-overlay">
+      <div class="lock-icon">🔒</div>
+      <div class="dot-pulse" style="justify-content:center">
+        <span></span><span></span><span></span>
+      </div>
+      <p>Esperando a los demás...</p>
+    </div>
+  </div>
+
+</div><!-- /.player-wrap -->
+
+<!-- Fix 3: Reveal — full viewport fixed overlay -->
+<div id="reveal-view" class="reveal-view">
+  <div id="reveal-icon" class="reveal-icon">✓</div>
+  <div id="reveal-result-label" class="reveal-label correct">¡Correcto!</div>
+  <div id="score-popup" class="score-popup">+0 pts</div>
+  <div id="reveal-total-score" class="reveal-total-score">Total: 0 pts</div>
+  <div id="rank-display" class="rank-display"></div>
+  <div class="reveal-waiting">
+    <div class="dot-pulse">
+      <span></span><span></span><span></span>
+    </div>
+    <span>Esperando al host...</span>
+  </div>
+</div>
+
+<!-- Fix 7: Final — full viewport fixed overlay -->
+<div id="final-view" class="player-final">
+  <div class="final-emoji">🎉</div>
+  <h1 class="final-title">¡Juego<br>terminado!</h1>
+  <div class="final-rank-num" id="final-rank-num">#—</div>
+  <div class="final-rank-label">Tu posición</div>
+  <div class="final-score" id="final-total-score">0 pts</div>
+
+  <div class="final-mini-lb">
+    <h3>Top jugadores</h3>
+    <div class="final-mini-lb-scroll">
+      <div id="final-mini-lb-list"></div>
+    </div>
+  </div>
+
+  <div class="final-play-again">
+    <a href="/play" class="btn btn-ghost">Jugar de nuevo</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/player.js"></script>
+{% endblock %}

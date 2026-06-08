@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Login — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="login-page">
+  <div class="login-card">
+    <a href="/" class="logo">Quiz<span>Lab</span></a>
+    <h2>Admin Login</h2>
+
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/admin/login">
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password"
+               placeholder="Enter admin password" autofocus required>
+      </div>
+      <button type="submit" class="btn btn-primary w-full btn-lg">Enter</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

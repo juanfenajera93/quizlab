@@ -1,0 +1,788 @@
+{% extends "base.html" %}
+{% block title %}{% if quiz %}Editar{% else %}Nueva{% endif %} Evaluación — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">← Back</a>
+      <button class="btn btn-primary" onclick="saveQuiz()">Save Quiz</button>
+    </div>
+  </nav>
+
+  <div class="editor-header">
+    <h1>{% if quiz %}Edit Quiz{% else %}New Quiz{% endif %}</h1>
+  </div>
+
+  <!-- Quiz metadata -->
+  <div class="editor-meta">
+    <div class="field" style="margin:0">
+      <label for="quiz-name">Quiz Name *</label>
+      <input type="text" id="quiz-name" placeholder="e.g. Midterm Review Ch.5"
+             value="{{ quiz.name if quiz else '' }}" required>
+    </div>
+    <div class="field" style="margin:0">
+      <label for="course-tag">Course Tag</label>
+      <input type="text" id="course-tag" placeholder="e.g. ADM-3083"
+             value="{{ quiz.course_tag if quiz and quiz.course_tag else '' }}">
+    </div>
+    <!-- Area 2: read_time with custom input -->
+    <div class="field" style="margin:0">
+      <label>Tiempo de Lectura</label>
+      <div class="radio-group" id="read-time-group">
+        <label class="radio-btn">
+          <input type="radio" name="read-time" value="0" {% if read_time == 0 %}checked{% endif %}> 0s
+        </label>
+        <label class="radio-btn">
+          <input type="radio" name="read-time" value="5" {% if read_time != 0 and read_time != 10 %}checked{% endif %}> 5s
+        </label>
+        <label class="radio-btn">
+          <input type="radio" name="read-time" value="10" {% if read_time == 10 %}checked{% endif %}> 10s
+        </label>
+        <span style="color:var(--text-muted);font-size:13px;align-self:center">o</span>
+        <input type="number" id="read-time-custom" min="0" max="60" step="1" placeholder="—"
+               style="width:60px;padding:6px 8px;font-size:14px;text-align:center">
+        <span style="color:var(--text-muted);font-size:13px;align-self:center">s</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Single-column question list — panel is a fixed overlay -->
+  <div class="editor-body">
+    <div>
+      <div class="q-list-header">
+        <h2 id="q-count-label">0 Questions</h2>
+        <button class="btn btn-primary btn-sm add-q-btn" onclick="openPanel(-1)">+ Add Question</button>
+      </div>
+
+      <div id="q-list" class="q-list"></div>
+
+      <div class="import-bar">
+        <p>Bulk import via CSV</p>
+        <a href="/admin/csv-template" class="btn btn-ghost btn-sm" download>↓ Template</a>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer; margin:0">
+          ↑ Import CSV
+          <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="handleCSVImport(this)">
+        </label>
+      </div>
+      <div id="csv-errors" class="csv-errors hidden"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Backdrop -->
+<div id="panel-backdrop" class="q-panel-backdrop" onclick="closePanel()"></div>
+
+<!-- Fixed overlay panel -->
+<div class="q-form-panel" id="q-form-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+    <h2 id="form-title" style="margin:0">Add Question</h2>
+    <button class="btn btn-ghost btn-sm" onclick="closePanel()" style="padding:4px 10px">✕</button>
+  </div>
+
+  <div class="field">
+    <label>Question Text *</label>
+    <textarea id="q-text-input" rows="3" placeholder="Enter question..."></textarea>
+  </div>
+
+  <!-- Area 3D: 5-type selector -->
+  <div class="field">
+    <label>Type</label>
+    <div class="radio-group" id="type-group">
+      <label class="radio-btn">
+        <input type="radio" name="q-type" value="mc" checked onchange="onTypeChange()"> MC
+      </label>
+      <label class="radio-btn">
+        <input type="radio" name="q-type" value="tf" onchange="onTypeChange()"> T/F
+      </label>
+      <label class="radio-btn">
+        <input type="radio" name="q-type" value="ms" onchange="onTypeChange()"> Multi
+      </label>
+      <label class="radio-btn">
+        <input type="radio" name="q-type" value="poll" onchange="onTypeChange()"> Encuesta
+      </label>
+      <label class="radio-btn">
+        <input type="radio" name="q-type" value="order" onchange="onTypeChange()"> Orden
+      </label>
+    </div>
+  </div>
+
+  <!-- Area 3D: Dynamic options list -->
+  <div class="field" id="options-section">
+    <label>Options</label>
+    <div id="options-list"></div>
+    <button class="btn btn-ghost btn-sm" id="add-option-btn" onclick="addOption()" style="margin-top:6px">+ Agregar opción</button>
+  </div>
+
+  <!-- Area 3D: Correct answer section (dynamic per type) -->
+  <div class="field" id="correct-section">
+    <label>Correct Answer</label>
+    <div id="correct-select" class="correct-select"></div>
+    <p id="order-correct-note" style="display:none;font-size:12px;color:var(--text-muted);margin-top:4px">
+      El orden actual de las opciones es el orden correcto.
+    </p>
+  </div>
+
+  <!-- Area 2: Time limit with custom input -->
+  <div class="field">
+    <label>Time Limit</label>
+    <div class="radio-group" id="time-limit-group">
+      <label class="radio-btn"><input type="radio" name="q-time" value="10"> 10s</label>
+      <label class="radio-btn"><input type="radio" name="q-time" value="20" checked> 20s</label>
+      <label class="radio-btn"><input type="radio" name="q-time" value="30"> 30s</label>
+      <span style="color:var(--text-muted);font-size:13px;align-self:center">o</span>
+      <input type="number" id="time-limit-custom" min="5" max="120" step="1" placeholder="—"
+             style="width:60px;padding:6px 8px;font-size:14px;text-align:center">
+      <span style="color:var(--text-muted);font-size:13px;align-self:center">s</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Points</label>
+    <div class="radio-group">
+      <label class="radio-btn"><input type="radio" name="q-pts" value="100" checked> 100</label>
+      <label class="radio-btn"><input type="radio" name="q-pts" value="200"> 200</label>
+      <label class="radio-btn"><input type="radio" name="q-pts" value="500"> 500</label>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Image (optional)</label>
+    <div class="img-upload-area" id="upload-area"
+         onclick="document.getElementById('img-file-input').click()"
+         ondragover="event.preventDefault(); this.classList.add('drag-active')"
+         ondragleave="this.classList.remove('drag-active')"
+         ondrop="handleImgDrop(event)">
+      <span>🖼 Drop image here or click to upload</span>
+      <p>JPG, PNG, GIF, WebP — max 10 MB</p>
+      <input type="file" id="img-file-input" accept="image/*" style="display:none" onchange="handleImgUpload(this)">
+    </div>
+    <img id="img-preview" class="img-preview" alt="Preview">
+    <div class="form-divider">or paste URL</div>
+    <input type="url" id="img-url-input" placeholder="https://example.com/image.png"
+           oninput="onImageUrlInput(this.value)">
+  </div>
+
+  <div style="display:flex; gap:8px">
+    <button class="btn btn-primary w-full" onclick="saveQuestion()">Save Question</button>
+    <button class="btn btn-ghost" onclick="closePanel()">Cancel</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var questions = {{ questions_json|safe }};
+var quizId = {{ quiz.id if quiz else 'null' }};
+var editingIdx = -1;
+var dragSrcIdx = null;
+
+// Option color classes
+var OPTION_COLORS = ['var(--answer-a)', 'var(--answer-b)', 'var(--answer-c)', 'var(--answer-d)', 'var(--answer-e)', 'var(--answer-f)'];
+var OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+var MAX_OPTIONS = 6;
+var MIN_OPTIONS = 2;
+
+// Current options array (strings) in the editor
+var currentOptions = ['', '', '', ''];
+
+// ── Init ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  renderQuestions();
+  initOptions(['', '', '', '']);
+  onTypeChange();
+  initCustomTimeInputs();
+});
+
+// ── Area 2: Custom time inputs ────────────────────────────────────
+
+function initCustomTimeInputs() {
+  // Read time
+  var readTimeCustom = document.getElementById('read-time-custom');
+  if (readTimeCustom) {
+    readTimeCustom.addEventListener('input', function() {
+      // Uncheck all radios
+      document.querySelectorAll('input[name="read-time"]').forEach(function(r) { r.checked = false; });
+    });
+  }
+  document.querySelectorAll('input[name="read-time"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (readTimeCustom) readTimeCustom.value = '';
+    });
+  });
+
+  // Time limit
+  var timeLimitCustom = document.getElementById('time-limit-custom');
+  if (timeLimitCustom) {
+    timeLimitCustom.addEventListener('input', function() {
+      document.querySelectorAll('input[name="q-time"]').forEach(function(r) { r.checked = false; });
+    });
+  }
+  document.querySelectorAll('input[name="q-time"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      if (timeLimitCustom) timeLimitCustom.value = '';
+    });
+  });
+}
+
+function getReadTime() {
+  var customEl = document.getElementById('read-time-custom');
+  if (customEl && customEl.value !== '') {
+    var v = parseInt(customEl.value);
+    if (!isNaN(v) && v >= 0) return v;
+  }
+  var checked = document.querySelector('input[name="read-time"]:checked');
+  return checked ? parseInt(checked.value) : 5;
+}
+
+function getTimeLimit() {
+  var customEl = document.getElementById('time-limit-custom');
+  if (customEl && customEl.value !== '') {
+    var v = parseInt(customEl.value);
+    if (!isNaN(v) && v >= 5) return v;
+  }
+  var checked = document.querySelector('input[name="q-time"]:checked');
+  return checked ? parseInt(checked.value) : 20;
+}
+
+function setTimeLimitUI(tl) {
+  var radios = ['10', '20', '30'];
+  var customEl = document.getElementById('time-limit-custom');
+  // Clear all
+  document.querySelectorAll('input[name="q-time"]').forEach(function(r) { r.checked = false; });
+  if (customEl) customEl.value = '';
+
+  if (radios.indexOf(String(tl)) !== -1) {
+    var r = document.querySelector('input[name="q-time"][value="' + tl + '"]');
+    if (r) r.checked = true;
+  } else {
+    if (customEl) customEl.value = tl;
+  }
+}
+
+// ── Panel open / close ─────────────────────────────────────────────
+function openPanel(idx) {
+  editingIdx = idx;
+  if (idx === -1) {
+    document.getElementById('form-title').textContent = 'Add Question';
+    openForm(null, -1);
+  } else {
+    document.getElementById('form-title').textContent = 'Edit Question';
+    openForm(questions[idx], idx);
+  }
+  document.getElementById('q-form-panel').classList.add('open');
+  document.getElementById('panel-backdrop').classList.add('show');
+}
+
+function closePanel() {
+  document.getElementById('q-form-panel').classList.remove('open');
+  document.getElementById('panel-backdrop').classList.remove('show');
+  editingIdx = -1;
+}
+
+// ── Render question list ──────────────────────────────────────────
+function renderQuestions() {
+  var list = document.getElementById('q-list');
+  var label = document.getElementById('q-count-label');
+  label.textContent = questions.length + ' Question' + (questions.length !== 1 ? 's' : '');
+
+  list.innerHTML = '';
+  questions.forEach(function(q, i) {
+    var item = document.createElement('div');
+    item.className = 'q-item';
+    item.draggable = true;
+    item.dataset.idx = i;
+
+    item.addEventListener('dragstart', function() { onDragStart(i); });
+    item.addEventListener('dragover', function(e) { e.preventDefault(); onDragOver(i, item); });
+    item.addEventListener('drop', function(e) { e.preventDefault(); onDrop(i); });
+    item.addEventListener('dragend', function() { onDragEnd(); });
+
+    var pts = q.points || 100;
+    var tl = q.time_limit || 20;
+    var qType = q.question_type || 'mc';
+    var typeLabels = { mc: 'MC', tf: 'T/F', ms: 'Multi', poll: 'Poll', order: 'Orden' };
+    var typeLabel = typeLabels[qType] || qType.toUpperCase();
+
+    item.innerHTML =
+      '<span class="drag-handle" title="Drag to reorder">⠿</span>' +
+      '<span class="q-num">' + String(i+1).padStart(2,'0') + '</span>' +
+      '<span class="q-text">' + escapeHtml(q.text) + '</span>' +
+      '<div class="q-badges">' +
+        '<span class="badge">' + typeLabel + '</span>' +
+        '<span class="badge">' + tl + 's</span>' +
+        '<span class="badge pts">' + pts + 'pt</span>' +
+      '</div>' +
+      '<div class="q-actions">' +
+        '<button class="btn btn-ghost btn-sm" onclick="openPanel(' + i + ')">Edit</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="deleteQuestion(' + i + ')">✕</button>' +
+      '</div>';
+
+    list.appendChild(item);
+  });
+}
+
+// ── Area 3D: Options management ────────────────────────────────────
+
+function initOptions(opts) {
+  currentOptions = opts.slice();
+  renderOptions();
+}
+
+function renderOptions() {
+  var container = document.getElementById('options-list');
+  container.innerHTML = '';
+  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+  var isTF = qType === 'tf';
+
+  currentOptions.forEach(function(opt, i) {
+    var row = document.createElement('div');
+    row.className = 'option-row';
+    row.style.marginBottom = '6px';
+
+    var letter = document.createElement('span');
+    letter.className = 'option-letter';
+    letter.style.color = OPTION_COLORS[i] || 'var(--text-muted)';
+    letter.textContent = OPTION_LETTERS[i] || String(i + 1);
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.style.margin = '0';
+    input.value = opt;
+    input.placeholder = 'Option ' + (OPTION_LETTERS[i] || String(i + 1));
+    if (isTF) {
+      input.readOnly = true;
+    }
+    input.addEventListener('input', (function(idx) {
+      return function(e) {
+        currentOptions[idx] = e.target.value;
+        updateCorrectSelect();
+      };
+    })(i));
+
+    var removeBtn = null;
+    if (!isTF && currentOptions.length > MIN_OPTIONS) {
+      removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.textContent = '×';
+      removeBtn.style.cssText = 'padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;flex-shrink:0';
+      removeBtn.addEventListener('click', (function(idx) {
+        return function() { removeOption(idx); };
+      })(i));
+    }
+
+    row.appendChild(letter);
+    row.appendChild(input);
+    if (removeBtn) row.appendChild(removeBtn);
+    container.appendChild(row);
+  });
+
+  // Add option button visibility
+  var addBtn = document.getElementById('add-option-btn');
+  if (addBtn) {
+    addBtn.style.display = (isTF || currentOptions.length >= MAX_OPTIONS) ? 'none' : '';
+  }
+
+  updateCorrectSelect();
+}
+
+function addOption() {
+  if (currentOptions.length >= MAX_OPTIONS) return;
+  currentOptions.push('');
+  renderOptions();
+}
+
+function removeOption(idx) {
+  if (currentOptions.length <= MIN_OPTIONS) return;
+  currentOptions.splice(idx, 1);
+  renderOptions();
+}
+
+// ── Area 3D: Correct answer selector ──────────────────────────────
+function updateCorrectSelect() {
+  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+  var container = document.getElementById('correct-select');
+  var section = document.getElementById('correct-section');
+  var orderNote = document.getElementById('order-correct-note');
+
+  if (qType === 'poll') {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  if (qType === 'order') {
+    container.innerHTML = '';
+    if (orderNote) orderNote.style.display = '';
+    return;
+  }
+  if (orderNote) orderNote.style.display = 'none';
+
+  container.innerHTML = '';
+
+  if (qType === 'ms') {
+    // Checkboxes
+    currentOptions.forEach(function(opt, i) {
+      var label = document.createElement('label');
+      label.style.cssText = 'display:inline-flex;align-items:center;gap:4px;margin-right:6px;cursor:pointer;';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.id = 'ms-correct-' + i;
+      var span = document.createElement('span');
+      span.className = 'correct-btn';
+      span.dataset.opt = i;
+      span.style.cssText = 'width:auto;padding:0 10px;color:' + (OPTION_COLORS[i] || 'var(--text-muted)');
+      span.textContent = OPTION_LETTERS[i] || String(i + 1);
+      cb.addEventListener('change', function() {
+        span.classList.toggle('selected', cb.checked);
+      });
+      label.appendChild(cb);
+      label.appendChild(span);
+      container.appendChild(label);
+    });
+  } else {
+    // MC or TF: radio-style correct buttons
+    currentOptions.forEach(function(opt, i) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'correct-btn';
+      btn.dataset.opt = i;
+      btn.style.color = OPTION_COLORS[i] || 'var(--text-muted)';
+      btn.textContent = qType === 'tf'
+        ? (i === 0 ? 'V' : 'F')
+        : (OPTION_LETTERS[i] || String(i + 1));
+      btn.addEventListener('click', (function(idx) {
+        return function() { selectCorrect(idx); };
+      })(i));
+      container.appendChild(btn);
+    });
+  }
+}
+
+function selectCorrect(idx) {
+  document.querySelectorAll('.correct-btn').forEach(function(btn) {
+    btn.classList.toggle('selected', parseInt(btn.dataset.opt) === idx);
+  });
+}
+
+function getCorrectJson() {
+  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+
+  if (qType === 'poll') return '';
+
+  if (qType === 'order') {
+    // The order in currentOptions IS the correct order
+    return JSON.stringify(currentOptions.map(function(_, i) { return i; }));
+  }
+
+  if (qType === 'ms') {
+    var indices = [];
+    document.querySelectorAll('#correct-select input[type="checkbox"]').forEach(function(cb, i) {
+      if (cb.checked) indices.push(i);
+    });
+    return JSON.stringify(indices);
+  }
+
+  // mc or tf
+  var selected = document.querySelector('.correct-btn.selected');
+  if (selected) return String(parseInt(selected.dataset.opt));
+  return '0';
+}
+
+// ── Question form ─────────────────────────────────────────────────
+function openForm(q, idx) {
+  document.getElementById('q-text-input').value = q ? q.text : '';
+
+  var qType = q ? (q.question_type || 'mc') : 'mc';
+  var radioEl = document.querySelector('input[name="q-type"][value="' + qType + '"]');
+  if (radioEl) radioEl.checked = true;
+
+  // Options
+  var opts;
+  if (q && q.options && q.options.length > 0) {
+    opts = q.options.slice();
+  } else if (!q || qType === 'mc') {
+    opts = ['', '', '', ''];
+  } else if (qType === 'tf') {
+    opts = ['Verdadero', 'Falso'];
+  } else {
+    opts = ['', '', '', ''];
+  }
+  initOptions(opts);
+  onTypeChange(qType);
+
+  // Set correct
+  if (q) {
+    var correctJson = q.correct_json || '';
+    if (qType === 'ms') {
+      // Check checkboxes
+      setTimeout(function() {
+        try {
+          var indices = JSON.parse(correctJson || '[]');
+          indices.forEach(function(i) {
+            var cb = document.getElementById('ms-correct-' + i);
+            if (cb) {
+              cb.checked = true;
+              var span = cb.nextElementSibling;
+              if (span) span.classList.add('selected');
+            }
+          });
+        } catch(e) {}
+      }, 0);
+    } else if (qType === 'mc' || qType === 'tf') {
+      var correctIdx = parseInt(correctJson) || 0;
+      setTimeout(function() { selectCorrect(correctIdx); }, 0);
+    }
+    // poll and order: no UI to set
+  }
+
+  // Time limit
+  var tl = q ? (q.time_limit || 20) : 20;
+  setTimeLimitUI(tl);
+
+  // Points
+  var pts = q ? (q.points || 100) : 100;
+  var ptsRadio = document.querySelector('input[name="q-pts"][value="' + pts + '"]');
+  if (ptsRadio) ptsRadio.checked = true;
+
+  // Image
+  var imgUrl = q ? (q.image_url || '') : '';
+  document.getElementById('img-url-input').value = imgUrl;
+  var preview = document.getElementById('img-preview');
+  if (imgUrl) {
+    preview.src = imgUrl;
+    preview.style.display = 'block';
+  } else {
+    preview.style.display = 'none';
+    preview.src = '';
+  }
+}
+
+function onTypeChange(type) {
+  if (!type) type = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+  var isTF = type === 'tf';
+
+  if (isTF) {
+    currentOptions = ['Verdadero', 'Falso'];
+  } else if (currentOptions.length === 2 && (currentOptions[0] === 'Verdadero' || currentOptions[0] === 'True')) {
+    // Was TF, switching to something else — reset to 4 blank
+    currentOptions = ['', '', '', ''];
+  }
+
+  renderOptions();
+
+  // Show/hide correct section
+  var correctSection = document.getElementById('correct-section');
+  if (type === 'poll') {
+    correctSection.style.display = 'none';
+  } else {
+    correctSection.style.display = '';
+  }
+
+  // Default select first for mc/tf
+  if (type === 'mc' || type === 'tf') {
+    setTimeout(function() { selectCorrect(0); }, 0);
+  }
+}
+
+function saveQuestion() {
+  var text = document.getElementById('q-text-input').value.trim();
+  if (!text) { showToast('Question text is required', 'error'); return; }
+
+  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+  var tl = getTimeLimit();
+  var pts = parseInt((document.querySelector('input[name="q-pts"]:checked') || {}).value || '100');
+
+  // Validate options
+  var opts = currentOptions.slice();
+  if (qType !== 'poll' && qType !== 'order') {
+    var filled = opts.filter(function(o) { return o.trim() !== ''; });
+    if (filled.length < 2) { showToast('Options A and B are required', 'error'); return; }
+  }
+
+  var correctJson = getCorrectJson();
+  var imgUrl = document.getElementById('img-url-input').value.trim() || null;
+
+  var q = {
+    text: text,
+    question_type: qType,
+    options: opts.filter(function(o) { return o.trim() !== ''; }),
+    correct_json: correctJson,
+    time_limit: tl,
+    points: pts,
+    image_url: imgUrl
+  };
+
+  // For order type: options must all be filled
+  if (qType === 'order') {
+    var allFilled = opts.filter(function(o) { return o.trim() !== ''; });
+    if (allFilled.length < 2) { showToast('Add at least 2 items to order', 'error'); return; }
+    q.options = allFilled;
+    q.correct_json = JSON.stringify(allFilled.map(function(_, i) { return i; }));
+  }
+
+  var wasEditing = editingIdx;
+  if (editingIdx === -1) {
+    questions.push(q);
+  } else {
+    questions[editingIdx] = q;
+  }
+
+  closePanel();
+  renderQuestions();
+  showToast(wasEditing === -1 ? 'Question added' : 'Question updated', 'success');
+}
+
+function deleteQuestion(idx) {
+  if (!confirm('Delete this question?')) return;
+  questions.splice(idx, 1);
+  if (editingIdx === idx) closePanel();
+  renderQuestions();
+}
+
+// ── Image upload ───────────────────────────────────────────────────
+function handleImgDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-area').classList.remove('drag-active');
+  var file = e.dataTransfer.files[0];
+  if (file) uploadImage(file);
+}
+
+function handleImgUpload(input) {
+  if (input.files[0]) uploadImage(input.files[0]);
+}
+
+function uploadImage(file) {
+  var formData = new FormData();
+  formData.append('file', file);
+  fetch('/admin/upload-image', { method: 'POST', body: formData })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { showToast(data.error, 'error'); return; }
+      document.getElementById('img-url-input').value = data.url;
+      var preview = document.getElementById('img-preview');
+      preview.src = data.url;
+      preview.style.display = 'block';
+    })
+    .catch(function() { showToast('Upload failed', 'error'); });
+}
+
+function onImageUrlInput(url) {
+  var preview = document.getElementById('img-preview');
+  if (url) { preview.src = url; preview.style.display = 'block'; }
+  else { preview.style.display = 'none'; preview.src = ''; }
+}
+
+// ── CSV import ─────────────────────────────────────────────────────
+function handleCSVImport(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var formData = new FormData();
+  formData.append('file', file);
+  fetch('/admin/import-csv', { method: 'POST', body: formData })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { showCsvErrors([data.error]); return; }
+      if (data.errors && data.errors.length) {
+        showCsvErrors(data.errors);
+      } else {
+        document.getElementById('csv-errors').classList.add('hidden');
+      }
+      if (data.questions && data.questions.length) {
+        questions = questions.concat(data.questions);
+        renderQuestions();
+        showToast(data.questions.length + ' questions imported', 'success');
+      }
+    })
+    .catch(function() { showToast('Import failed', 'error'); });
+  input.value = '';
+}
+
+function showCsvErrors(errors) {
+  var el = document.getElementById('csv-errors');
+  el.innerHTML = '<strong>Import warnings:</strong><br>' + errors.map(escapeHtml).join('<br>');
+  el.classList.remove('hidden');
+}
+
+// ── Drag and drop reorder ──────────────────────────────────────────
+function onDragStart(idx) {
+  dragSrcIdx = idx;
+  setTimeout(function() {
+    var items = document.querySelectorAll('.q-item');
+    if (items[idx]) items[idx].classList.add('dragging');
+  }, 0);
+}
+
+function onDragOver(idx, el) {
+  document.querySelectorAll('.q-item').forEach(function(i) { i.classList.remove('drag-over'); });
+  el.classList.add('drag-over');
+}
+
+function onDrop(targetIdx) {
+  if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+  var moved = questions.splice(dragSrcIdx, 1)[0];
+  questions.splice(targetIdx, 0, moved);
+  dragSrcIdx = null;
+  renderQuestions();
+}
+
+function onDragEnd() {
+  document.querySelectorAll('.q-item').forEach(function(i) {
+    i.classList.remove('dragging', 'drag-over');
+  });
+  dragSrcIdx = null;
+}
+
+// ── Save quiz ─────────────────────────────────────────────────────
+function saveQuiz() {
+  var name = document.getElementById('quiz-name').value.trim();
+  if (!name) { showToast('Quiz name is required', 'error'); return; }
+  if (questions.length === 0) { showToast('Add at least one question', 'error'); return; }
+
+  var readTime = getReadTime();
+
+  var payload = {
+    quiz_id: quizId,
+    name: name,
+    course_tag: document.getElementById('course-tag').value.trim(),
+    read_time: readTime,
+    questions: questions
+  };
+
+  fetch('/admin/quiz/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { showToast(data.error, 'error'); return; }
+    quizId = data.quiz_id;
+    showToast('Quiz saved!', 'success');
+    setTimeout(function() { location.href = '/admin/dashboard'; }, 1200);
+  })
+  .catch(function() { showToast('Save failed', 'error'); });
+}
+
+// ── Utilities ─────────────────────────────────────────────────────
+function showToast(msg, type) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type || '');
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+</script>
+{% endblock %}

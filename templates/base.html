@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script>
+    (function () {
+      var stored = localStorage.getItem('quizlab-theme');
+      var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var theme = stored ? stored : (systemDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}QuizLab{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;900&family=Syne+Mono&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/base.css">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+  {% block content %}{% endblock %}
+  <script src="/static/js/theme.js"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

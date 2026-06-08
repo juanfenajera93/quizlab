@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+python-multipart
+aiofiles
+qrcode[pil]
+pillow
+jinja2
+python-dotenv
+itsdangerous
+psycopg2-binary
+sqlalchemy[asyncio]

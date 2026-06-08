@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Host — QuizLab{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/host.css">
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="host-wrap">
+
+  <!-- ── LOBBY ── -->
+  <section id="lobby" class="view active">
+    <header class="lobby-header">
+      <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+      <span id="quiz-name-display" style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;text-transform:uppercase;color:var(--text-muted)"></span>
+    </header>
+
+    <div class="lobby-body">
+      <div class="lobby-qr-panel">
+        <div class="qr-frame">
+          <img id="qr-img" src="" alt="QR Code" width="200" height="200">
+        </div>
+        <div class="join-url" id="join-url"></div>
+        <div class="room-code-display">
+          <div class="room-code-label">Room Code</div>
+          <div class="room-code-value mono" id="room-code-display">——————</div>
+        </div>
+      </div>
+
+      <div class="lobby-players-panel">
+        <div class="players-header">
+          <h2>Players</h2>
+          <span class="player-count-badge" id="player-count-badge">0</span>
+        </div>
+        <div class="player-chips" id="player-chips">
+          <span style="color:var(--text-muted);font-size:14px">Waiting for players to join...</span>
+        </div>
+        <div class="lobby-actions">
+          <button class="btn btn-primary btn-lg" id="start-btn" onclick="hostStartGame()" disabled>
+            Start Game
+          </button>
+          <span class="start-hint" id="start-hint">Waiting for players...</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── GAME ── -->
+  <section id="game" class="view">
+    <header class="game-header">
+      <span class="q-progress">Q <span id="q-num">0</span> / <span id="q-total">0</span></span>
+
+      <!-- Fix 4: timer-container has id for JS visibility toggle -->
+      <div class="timer-container" id="timer-container">
+        <svg class="timer-ring" viewBox="0 0 100 100" width="72" height="72">
+          <circle class="ring-track" cx="50" cy="50" r="45"/>
+          <circle id="timer-ring-progress" class="ring-progress" cx="50" cy="50" r="45"
+                  stroke-dasharray="282.74" stroke-dashoffset="0"
+                  transform="rotate(-90 50 50)"/>
+          <text id="timer-number" class="ring-number" x="50" y="50">—</text>
+        </svg>
+      </div>
+
+      <div style="display:flex;gap:8px">
+        <button id="reveal-btn" class="btn btn-ghost btn-sm hidden" onclick="hostReveal()">Reveal Now</button>
+        <button id="next-btn" class="btn btn-primary btn-sm hidden" onclick="hostNext()">Next →</button>
+      </div>
+    </header>
+
+    <!-- Fix 5: Read phase bar (shown during read phase, hidden during answer phase) -->
+    <div id="read-phase-bar" class="read-phase-bar">
+      <span class="read-bar-label">Lee la pregunta</span>
+      <div class="read-bar-track">
+        <div id="read-bar-fill" class="read-bar-fill"></div>
+      </div>
+      <span class="read-bar-count" id="read-bar-count">5</span>
+    </div>
+
+    <div class="game-body">
+      <div class="q-area">
+        <div class="q-bg-num" id="q-bg-num">01</div>
+        <div class="q-content">
+          <div id="q-text" class="q-text"></div>
+          <img id="q-image" class="q-image" src="" alt="" style="display:none">
+          <div id="answer-tiles" class="answer-tiles"></div>
+        </div>
+      </div>
+
+      <div class="chart-panel">
+        <div class="chart-title">Live Answers</div>
+        <div class="bar-rows">
+          <div class="bar-row" data-opt="0">
+            <span class="bar-letter" style="color:var(--answer-a)">A</span>
+            <div class="bar-track"><div class="bar-fill"></div></div>
+            <span class="bar-count">0</span>
+          </div>
+          <div class="bar-row" data-opt="1">
+            <span class="bar-letter" style="color:var(--answer-b)">B</span>
+            <div class="bar-track"><div class="bar-fill"></div></div>
+            <span class="bar-count">0</span>
+          </div>
+          <div class="bar-row" data-opt="2">
+            <span class="bar-letter" style="color:var(--answer-c)">C</span>
+            <div class="bar-track"><div class="bar-fill"></div></div>
+            <span class="bar-count">0</span>
+          </div>
+          <div class="bar-row" data-opt="3">
+            <span class="bar-letter" style="color:var(--answer-d)">D</span>
+            <div class="bar-track"><div class="bar-fill"></div></div>
+            <span class="bar-count">0</span>
+          </div>
+        </div>
+
+        <div id="reveal-panel" class="reveal-leaderboard hidden">
+          <div class="reveal-lb-title">Top Players</div>
+          <div id="reveal-lb-list"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FINAL ── -->
+  <section id="final" class="view">
+    <div class="final-view">
+      <div class="final-header">
+        <h1>Game<br><span>Over!</span></h1>
+      </div>
+      <div class="podium-row" id="podium-row"></div>
+      <div class="final-lb" id="final-lb-list"></div>
+      <div style="margin-top:32px">
+        <a href="/admin/dashboard" class="btn btn-ghost">← Dashboard</a>
+      </div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.QUIZ_ID = {{ quiz_id }};
+</script>
+<script src="/static/js/host.js"></script>
+{% endblock %}

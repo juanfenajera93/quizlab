@@ -1,0 +1,655 @@
+/* ── Host layout ── */
+.host-wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* View switching */
+.view { display: none; }
+.view.active { display: flex; flex-direction: column; flex: 1; }
+
+/* ── Lobby ── */
+.lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lobby-header .logo { font-size: 24px; }
+
+.lobby-body {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 0;
+  flex: 1;
+}
+
+.lobby-qr-panel {
+  border-right: 1px solid var(--border);
+  padding: 36px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.qr-frame {
+  background: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: inline-block;
+  line-height: 0;
+}
+
+.qr-frame img { width: 200px; height: 200px; display: block; }
+
+.join-url {
+  font-family: 'Syne Mono', monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.room-code-display {
+  text-align: center;
+  width: 100%;
+}
+
+.room-code-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.room-code-value {
+  font-family: 'Syne Mono', monospace;
+  font-size: 52px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--lime);
+  letter-spacing: 0.06em;
+}
+
+.lobby-players-panel {
+  padding: 36px 40px;
+  display: flex;
+  flex-direction: column;
+}
+
+.players-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.players-header h2 { font-size: 28px; }
+
+.player-count-badge {
+  font-family: 'Syne Mono', monospace;
+  font-size: 14px;
+  color: var(--lime);
+  background: color-mix(in srgb, var(--lime) 12%, transparent);
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--lime) 30%, transparent);
+}
+
+.player-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+  align-content: flex-start;
+}
+
+.player-chip {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 30px;
+  animation: fade-in 0.3s ease;
+}
+
+[data-theme="light"] .player-chip {
+  border: 2px solid var(--border);
+}
+
+.lobby-actions {
+  margin-top: 32px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.start-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Game view header ── */
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.q-progress {
+  font-family: 'Syne Mono', monospace;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.q-progress span { color: var(--text); }
+
+/* ── Timer ring ── */
+.timer-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-ring {
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+
+.ring-track {
+  fill: none;
+  stroke: var(--surface-2);
+  stroke-width: 8;
+}
+
+.ring-progress {
+  fill: none;
+  stroke: var(--fire);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.9s linear;
+}
+
+.ring-number {
+  font-family: 'Syne Mono', monospace;
+  font-size: 28px;
+  fill: var(--text);
+  transform: rotate(90deg);
+  transform-origin: 50px 50px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.ring-number.urgent {
+  fill: var(--answer-a);
+  animation: timer-pulse 0.5s ease infinite alternate;
+}
+
+/* ── Game layout ── */
+.game-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Left: question area */
+.q-area {
+  padding: 32px 40px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.q-bg-num {
+  position: absolute;
+  bottom: -20px;
+  left: 20px;
+  font-family: 'Syne Mono', monospace;
+  font-size: 240px;
+  font-weight: 400;
+  color: var(--text);
+  opacity: 0.04;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.q-content {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.q-text {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 42px;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  margin-bottom: 20px;
+  max-width: 700px;
+}
+
+.q-image {
+  max-height: 200px;
+  max-width: 400px;
+  object-fit: contain;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+}
+
+/* ── Area 5 + 6 + 7: Answer tiles grid ── */
+.answer-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: auto;
+  max-width: 640px;
+  align-items: stretch;
+}
+
+.answer-tile {
+  height: auto;
+  min-height: 60px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  border: none;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* 5 options: last tile spans full width */
+.answer-tiles.count-5 .answer-tile:last-child { grid-column: 1 / -1; }
+
+/* Answer tile colors (0-5) */
+.answer-tile[data-idx="0"] { background: var(--answer-a); color: #fff; }
+.answer-tile[data-idx="1"] { background: var(--answer-b); color: #fff; }
+.answer-tile[data-idx="2"] { background: var(--answer-c); color: #111110; }
+.answer-tile[data-idx="3"] { background: var(--answer-d); color: #fff; }
+.answer-tile[data-idx="4"] { background: var(--answer-e); color: #fff; }
+.answer-tile[data-idx="5"] { background: var(--answer-f); color: #fff; }
+
+.tile-letter {
+  width: 30px;
+  height: 30px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.answer-tile[data-idx="2"] .tile-letter { background: rgba(0,0,0,0.15); }
+
+.answer-tile.correct {
+  animation: pulse-scale 0.4s ease-in-out;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 6px currentColor;
+}
+
+.answer-tile.wrong { opacity: 0.25; }
+
+/* ── Area 6: Slide-up animation for tiles appearing in answer phase ── */
+@keyframes slide-up-tile {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.answer-tile.slide-up {
+  animation: slide-up-tile 0.3s ease both;
+}
+
+/* Right: chart panel */
+.chart-panel {
+  border-left: 1px solid var(--border);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+}
+
+.chart-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.bar-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar-letter {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.bar-track {
+  flex: 1;
+  height: 10px;
+  background: var(--surface-2);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  width: 0%;
+  transition: width 0.4s ease;
+}
+
+.bar-row[data-opt="0"] .bar-fill { background: var(--answer-a); }
+.bar-row[data-opt="1"] .bar-fill { background: var(--answer-b); }
+.bar-row[data-opt="2"] .bar-fill { background: var(--answer-c); }
+.bar-row[data-opt="3"] .bar-fill { background: var(--answer-d); }
+.bar-row[data-opt="4"] .bar-fill { background: var(--answer-e); }
+.bar-row[data-opt="5"] .bar-fill { background: var(--answer-f); }
+
+.bar-count {
+  font-family: 'Syne Mono', monospace;
+  font-size: 14px;
+  color: var(--text-muted);
+  width: 24px;
+  text-align: right;
+}
+
+/* Reveal leaderboard */
+.reveal-leaderboard {
+  margin-top: 24px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.reveal-lb-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  animation: slide-in-right 0.3s ease both;
+}
+
+.lb-rank {
+  font-family: 'Syne Mono', monospace;
+  font-size: 18px;
+  width: 28px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.lb-rank.top1 { color: #FFD700; }
+.lb-rank.top2 { color: #C0C0C0; }
+.lb-rank.top3 { color: #CD7F32; }
+
+.lb-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  text-transform: uppercase;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-score {
+  font-family: 'Syne Mono', monospace;
+  font-size: 14px;
+  color: var(--lime);
+}
+
+/* ── Game footer ── */
+.game-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 16px 28px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Final screen ── */
+.final-view {
+  min-height: 100vh;
+  padding: 40px 48px;
+}
+
+.final-header {
+  margin-bottom: 40px;
+}
+
+.final-header h1 {
+  font-size: 72px;
+  line-height: 1;
+}
+
+.final-header h1 span { color: var(--lime); }
+
+.podium-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+
+.podium-item {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.podium-rank {
+  font-family: 'Syne Mono', monospace;
+  font-size: 48px;
+  line-height: 1;
+}
+
+.podium-item:nth-child(1) .podium-rank { color: #C0C0C0; font-size: 36px; }
+.podium-item:nth-child(2) .podium-rank { color: #FFD700; }
+.podium-item:nth-child(3) .podium-rank { color: #CD7F32; font-size: 36px; }
+
+.podium-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 20px;
+  text-transform: uppercase;
+}
+
+.podium-score {
+  font-family: 'Syne Mono', monospace;
+  font-size: 16px;
+  color: var(--lime);
+}
+
+.final-lb {
+  max-width: 600px;
+}
+
+.final-lb-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  animation: slide-in-right 0.35s ease both;
+}
+
+.final-lb-num {
+  font-family: 'Syne Mono', monospace;
+  font-size: 40px;
+  width: 64px;
+  color: var(--text-muted);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.final-lb-num.top1 { color: #FFD700; }
+.final-lb-num.top2 { color: #C0C0C0; }
+.final-lb-num.top3 { color: #CD7F32; }
+
+.final-lb-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  text-transform: uppercase;
+  flex: 1;
+}
+
+.final-lb-score {
+  font-family: 'Syne Mono', monospace;
+  font-size: 22px;
+  color: var(--lime);
+}
+
+/* Fix 4: Move theme toggle to bottom-right on host page */
+body:has(.host-wrap) #theme-toggle {
+  top: auto;
+  bottom: 1.5rem;
+}
+
+/* ── Read phase UI ── */
+.read-phase-bar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 28px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.read-phase-bar.visible { display: flex; }
+
+.read-bar-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--lime);
+  white-space: nowrap;
+}
+
+.read-bar-track {
+  flex: 1;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.read-bar-fill {
+  height: 100%;
+  background: var(--lime);
+  border-radius: 2px;
+  width: 100%;
+}
+
+.read-bar-count {
+  font-family: 'Syne Mono', monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  width: 24px;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .game-body { grid-template-columns: 1fr; }
+  .chart-panel { border-left: none; border-top: 1px solid var(--border); }
+  .lobby-body { grid-template-columns: 1fr; }
+  .lobby-qr-panel { border-right: none; border-bottom: 1px solid var(--border); }
+  .q-text { font-size: 28px; }
+}
+
+/* ── Light mode: lime contrast fixes ── */
+
+/* Fix 1: room code large text — lime invisible on cream */
+[data-theme="light"] .room-code-value {
+  color: var(--text);
+}
+
+/* Fix 2: player count badge — lime text on tinted lime bg, completely unreadable */
+[data-theme="light"] .player-count-badge {
+  background: var(--text);
+  color: var(--bg);
+  border: 2px solid var(--lime);
+}
+
+/* Leaderboard scores and final screen score values — spec §5: use var(--violet) */
+[data-theme="light"] .lb-score       { color: var(--violet); }
+[data-theme="light"] .podium-score   { color: var(--violet); }
+[data-theme="light"] .final-lb-score { color: var(--violet); }
+
+/* "Game Over!" decorative span — lime invisible on light bg */
+[data-theme="light"] .final-header h1 span { color: var(--violet); }
+
+/* Read phase label — lime text on surface-2 (warm cream) */
+[data-theme="light"] .read-bar-label { color: var(--text); }
