@@ -14,28 +14,39 @@
   var msSelections = [];      // for ms type
   var timerInterval = null;
   var readTimerTimeout = null;
+  var playerScore = 0;
+  var reconnectAttempts = 0;
+  var reconnectTimeout = null;
 
   // ── Views ──────────────────────────────────────────────────────
-  function showView(id) {
-    document.querySelectorAll('.pview').forEach(function (v) {
-      v.classList.remove('active');
-    });
+  function _hideAllViews() {
+    document.querySelectorAll('.pview').forEach(function (v) { v.classList.remove('active'); });
     document.getElementById('reveal-view').classList.remove('active');
     document.getElementById('final-view').classList.remove('active');
+    var ended = document.getElementById('game-ended-view');
+    if (ended) ended.classList.remove('active');
+  }
+
+  function showView(id) {
+    _hideAllViews();
     var el = document.getElementById(id);
     if (el) el.classList.add('active');
   }
 
   function showReveal() {
-    document.querySelectorAll('.pview').forEach(function (v) { v.classList.remove('active'); });
+    _hideAllViews();
     document.getElementById('reveal-view').classList.add('active');
-    document.getElementById('final-view').classList.remove('active');
   }
 
   function showFinal() {
-    document.querySelectorAll('.pview').forEach(function (v) { v.classList.remove('active'); });
-    document.getElementById('reveal-view').classList.remove('active');
+    _hideAllViews();
     document.getElementById('final-view').classList.add('active');
+  }
+
+  function showGameEnded() {
+    _hideAllViews();
+    var el = document.getElementById('game-ended-view');
+    if (el) el.classList.add('active');
   }
 
   // ── WebSocket ──────────────────────────────────────────────────
@@ -47,7 +58,48 @@
       try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
     };
     ws.onclose = function () { showError('Conexión perdida. Recarga la página.'); };
-    ws.onerror = function () { showError('Error de conexión.'); };
+    ws.onerror = function () {};
+  }
+
+  function reconnect() {
+    var storedRoom = sessionStorage.getItem('ql_room');
+    var storedNick = sessionStorage.getItem('ql_nickname');
+    if (!storedRoom || !storedNick || reconnectAttempts >= 5) return;
+    var delay = (reconnectAttempts + 1) * 1000;
+    reconnectAttempts++;
+    showReconnectBanner();
+    if (reconnectTimeout) { clearTimeout(reconnectTimeout); }
+    reconnectTimeout = setTimeout(function () {
+      reconnectTimeout = null;
+      var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(proto + '://' + location.host + '/ws/player');
+      ws.onopen = function () {
+        ws.send(JSON.stringify({
+          type: 'rejoin',
+          room_code: storedRoom,
+          nickname: storedNick
+        }));
+      };
+      ws.onmessage = function (e) {
+        try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
+      };
+      ws.onclose = function () {
+        if (sessionStorage.getItem('ql_room')) {
+          setTimeout(reconnect, 500);
+        }
+      };
+      ws.onerror = function () {};
+    }, delay);
+  }
+
+  function showReconnectBanner() {
+    var banner = document.getElementById('reconnect-banner');
+    if (banner) banner.classList.add('visible');
+  }
+
+  function hideReconnectBanner() {
+    var banner = document.getElementById('reconnect-banner');
+    if (banner) banner.classList.remove('visible');
   }
 
   function send(obj) {
@@ -63,6 +115,8 @@
       case 'question':      onQuestion(msg);      break;
       case 'reveal':        onReveal(msg);        break;
       case 'game_end':      onGameEnd(msg);       break;
+      case 'state_sync':    onStateSync(msg);     break;
+      case 'game_ended':    onGameEnded(msg);     break;
       case 'error':         showError(msg.message); break;
     }
   }
@@ -70,6 +124,17 @@
   function onJoined(msg) {
     playerId = msg.player_id;
     roomCode = msg.room_code;
+    sessionStorage.setItem('ql_room', msg.room_code);
+    sessionStorage.setItem('ql_nickname', document.getElementById('nickname-input').value.trim());
+    sessionStorage.setItem('ql_player_id', msg.player_id);
+    // Switch ws.onclose to reconnect mode now that we have a session
+    if (ws) {
+      ws.onclose = function () {
+        if (sessionStorage.getItem('ql_room')) {
+          setTimeout(reconnect, 500);
+        }
+      };
+    }
     document.getElementById('waiting-room-code').textContent = roomCode;
     document.getElementById('my-nickname').textContent =
       document.getElementById('nickname-input').value.trim();
@@ -376,6 +441,7 @@
     var isCorrect = msg.is_correct || false;
     var ptsEarned = msg.points_earned || 0;
     var totalScore = msg.total_score || 0;
+    playerScore = totalScore;
     var rank = msg.rank || '—';
     var total = msg.total_players || '—';
     var yourAnswer = msg.your_answer;
@@ -460,6 +526,54 @@
     if (myEntry && myEntry.rank <= 3 && window.confetti) {
       confetti({ particleCount: 150, spread: 70, colors: ['#B9FF66', '#FF6B35', '#7B61FF'] });
     }
+  }
+
+  // ── Reconnect state restore ───────────────────────────────────
+  function onStateSync(msg) {
+    hideReconnectBanner();
+    reconnectAttempts = 0;
+    playerId = msg.player_id;
+    playerScore = msg.score || 0;
+    roomCode = sessionStorage.getItem('ql_room');
+
+    if (msg.state === 'lobby') {
+      showView('waiting-view');
+    } else if (msg.state === 'question' && msg.question) {
+      var qData = {
+        id: msg.question.id,
+        text: msg.question.text,
+        image_url: msg.question.image_url,
+        options: msg.question.options,
+        time_limit: msg.question.time_limit,
+        read_time: msg.question.read_time,
+        number: msg.question.number,
+        total: msg.question.total,
+        question_type: msg.question.question_type,
+      };
+      if (msg.phase === 'answering') {
+        qData.read_time = 0;
+        qData.time_limit = msg.answer_time_remaining || 0;
+      } else if (msg.phase === 'reading') {
+        qData.read_time = msg.read_time_remaining || 0;
+      }
+      onQuestion(qData);
+      if (msg.already_answered) {
+        answered = true;
+        document.getElementById('answered-overlay').classList.add('show');
+      }
+    } else if (msg.state === 'reveal') {
+      showReveal();
+    } else if (msg.state === 'ended') {
+      showGameEnded();
+    }
+  }
+
+  function onGameEnded(msg) {
+    clearTimer();
+    if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
+    var scoreEl = document.querySelector('#game-ended-view .game-ended-score');
+    if (scoreEl) scoreEl.textContent = 'Tu puntuación final: ' + playerScore + ' pts';
+    showGameEnded();
   }
 
   // ── Answer submission ──────────────────────────────────────────
@@ -610,6 +724,16 @@
       if (e.key === 'Enter') {
         var joinView = document.getElementById('join-view');
         if (joinView && joinView.classList.contains('active')) joinGame();
+      }
+    });
+
+    // Reconnect when tab becomes visible and socket is dead
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' &&
+          (!ws || ws.readyState !== WebSocket.OPEN) &&
+          sessionStorage.getItem('ql_room')) {
+        reconnectAttempts = 0;
+        reconnect();
       }
     });
   });

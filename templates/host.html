@@ -61,7 +61,9 @@
         </svg>
       </div>
 
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-ghost btn-sm" onclick="hostStopQuiz()" style="color:var(--text-muted)">■ Detener Quiz</button>
+        <div style="width:1px;height:20px;background:var(--border)"></div>
         <button id="reveal-btn" class="btn btn-ghost btn-sm hidden" onclick="hostReveal()">Reveal Now</button>
         <button id="next-btn" class="btn btn-primary btn-sm hidden" onclick="hostNext()">Next →</button>
       </div>

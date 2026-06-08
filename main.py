@@ -432,6 +432,23 @@ async def host_launch(
     )
 
 
+@app.post("/admin/quiz/end/{room_code}")
+async def end_quiz(room_code: str, request: Request):
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=401)
+    session = game_manager.get_session(room_code)
+    leaderboard = session.get_leaderboard() if session else []
+    questions_answered = (session.current_question_index + 1) if session else 0
+    total_questions = len(session.questions) if session else 0
+    await game_manager.end_session(room_code)
+    return JSONResponse({
+        "ok": True,
+        "leaderboard": leaderboard,
+        "questions_answered": questions_answered,
+        "total_questions": total_questions,
+    })
+
+
 @app.get("/qr/{room_code}")
 async def qr_code(room_code: str, request: Request):
     base = str(request.base_url).rstrip("/")
@@ -601,6 +618,17 @@ async def ws_player(websocket: WebSocket):
                     int(data.get("question_id", -1)),
                     data.get("ordering", []),
                 )
+
+            elif t == "rejoin":
+                rc = data.get("room_code", "").strip().upper()
+                nickname = data.get("nickname", "").strip()
+                state_msg = await game_manager.rejoin_player(rc, nickname, websocket)
+                if state_msg is None:
+                    await websocket.send_json({"type": "error", "message": "No se pudo reconectar"})
+                else:
+                    room_code = rc
+                    player_id = state_msg["player_id"]
+                    await websocket.send_json(state_msg)
 
     except WebSocketDisconnect:
         if player_id and room_code:

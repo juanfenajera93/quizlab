@@ -529,6 +529,72 @@ class GameManager:
             except Exception:
                 pass
 
+    async def rejoin_player(self, room_code: str, nickname: str,
+                            new_websocket: WebSocket) -> Optional[dict]:
+        session = self.get_session(room_code)
+        if not session or session.state == "ended":
+            return None
+        player = next((p for p in session.players.values()
+                       if p.nickname == nickname), None)
+        if not player:
+            return None
+        player.websocket = new_websocket
+        player.connected = True
+        session.last_activity = datetime.utcnow()
+        q = session.current_question
+        state_msg: dict = {
+            "type": "state_sync",
+            "state": session.state,
+            "player_id": player.player_id,
+            "score": player.score,
+            "question_index": session.current_question_index,
+            "total_questions": len(session.questions),
+        }
+        if session.state == "question" and q:
+            qi = session.current_question_index
+            q_type = q.get("question_type", "mc")
+            now = time.time()
+            if session.answer_phase_start_time and now < session.answer_phase_start_time:
+                state_msg["phase"] = "reading"
+                state_msg["read_time_remaining"] = max(
+                    0.0, session.answer_phase_start_time - now)
+            else:
+                answer_deadline = (session.answer_phase_start_time or now) + q.get(
+                    "time_limit", 20)
+                state_msg["phase"] = "answering"
+                state_msg["answer_time_remaining"] = max(0.0, answer_deadline - now)
+            options = q.get("options", [])
+            if q_type == "order" and qi in session.order_correct:
+                argsort = session.order_correct[qi]
+                shuffled_options = [""] * len(argsort)
+                for shuffled_pos, orig_pos in enumerate(argsort):
+                    if orig_pos < len(options):
+                        shuffled_options[shuffled_pos] = options[orig_pos]
+                options = shuffled_options
+            state_msg["question"] = {
+                "id": qi,
+                "text": q["text"],
+                "image_url": q.get("image_url") or "",
+                "options": options,
+                "time_limit": q.get("time_limit", 20),
+                "read_time": session.read_time,
+                "number": qi + 1,
+                "total": len(session.questions),
+                "question_type": q_type,
+            }
+            state_msg["already_answered"] = qi in player.confirmed
+        return state_msg
+
+    async def end_session(self, room_code: str):
+        session = self.get_session(room_code)
+        if not session:
+            return
+        session.state = "ended"
+        await self._broadcast_players(session, {
+            "type": "game_ended",
+            "message": "El quiz ha sido detenido por el profesor.",
+        })
+
     def cleanup_old_sessions(self):
         cutoff = datetime.utcnow() - timedelta(hours=2)
         to_remove = [

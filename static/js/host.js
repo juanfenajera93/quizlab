@@ -13,6 +13,8 @@
   var revealSent = false;
   var inReadPhase = false;
   var answerCounts = [];
+  var answersRevealed = false;
+  var latestCounts = [];
 
   // ── Views ──────────────────────────────────────────────────────
   function showView(id) {
@@ -97,6 +99,8 @@
     currentQuestion = msg;
     revealSent = false;
     answerCounts = new Array((msg.options || []).length).fill(0);
+    answersRevealed = false;
+    latestCounts = [];
     inReadPhase = true;
 
     showView('game');
@@ -219,8 +223,10 @@
   }
 
   function onAnswerCounts(msg) {
-    answerCounts = msg.counts;
-    updateChart(answerCounts);
+    latestCounts = msg.counts;
+    if (answersRevealed) {
+      updateChart(latestCounts);
+    }
   }
 
   function onReveal(msg) {
@@ -321,6 +327,8 @@
   function triggerReveal() {
     if (revealSent || inReadPhase) return;
     revealSent = true;
+    answersRevealed = true;
+    updateChart(latestCounts);
     send({ type: 'reveal' });
   }
 
@@ -409,7 +417,64 @@
   // ── Controls ───────────────────────────────────────────────────
   window.hostStartGame = function () { send({ type: 'start_game' }); };
   window.hostReveal    = function () { triggerReveal(); };
-  window.hostNext      = function () { send({ type: 'next_question' }); };
+  window.hostNext      = function () {
+    answersRevealed = true;
+    updateChart(latestCounts);
+    send({ type: 'next_question' });
+  };
+  window.hostStopQuiz  = function () {
+    if (!confirm('¿Detener el quiz? Esto terminará la sesión para todos los jugadores.')) return;
+    fetch('/admin/quiz/end/' + roomCode, { method: 'POST' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (data) { showStoppedLeaderboard(data); })
+      .catch(function () { alert('Error al detener el quiz. Intenta de nuevo.'); });
+  };
+
+  function showStoppedLeaderboard(data) {
+    var lb = data.leaderboard || [];
+    var qAnswered = data.questions_answered || 0;
+    var qTotal = data.total_questions || 0;
+
+    var rowsHtml = '';
+    lb.forEach(function (entry) {
+      var rankColor = entry.rank === 1 ? '#FFD700'
+                    : entry.rank === 2 ? '#C0C0C0'
+                    : entry.rank === 3 ? '#CD7F32'
+                    : 'var(--text-muted)';
+      rowsHtml +=
+        '<div class="final-lb-row" style="animation:none">' +
+          '<span class="final-lb-num" style="color:' + rankColor + '">' +
+            String(entry.rank).padStart(2, '0') +
+          '</span>' +
+          '<span class="final-lb-name">' + escapeHtml(entry.nickname) + '</span>' +
+          '<span class="final-lb-score">' + entry.score + '</span>' +
+        '</div>';
+    });
+
+    var overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;' +
+      'background:var(--bg);display:flex;flex-direction:column;' +
+      'padding:40px 48px;box-sizing:border-box;overflow:hidden;';
+
+    overlay.innerHTML =
+      '<h1 style="font-family:\'Barlow Condensed\',sans-serif;font-weight:900;' +
+        'font-size:52px;text-transform:uppercase;letter-spacing:-0.02em;' +
+        'line-height:1;margin:0 0 8px">RESULTADOS PARCIALES</h1>' +
+      '<p style="font-size:15px;color:var(--text-muted);margin:0 0 32px">' +
+        'Quiz detenido en pregunta ' + qAnswered + ' de ' + qTotal +
+      '</p>' +
+      '<div style="flex:1;overflow-y:auto;min-height:0;max-width:600px">' +
+        rowsHtml +
+      '</div>' +
+      '<div style="margin-top:32px;flex-shrink:0">' +
+        '<button class="btn btn-primary btn-lg" ' +
+          'onclick="location.href=\'/admin/dashboard\'" ' +
+          'style="min-width:200px">IR AL DASHBOARD →</button>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+  }
 
   // ── Util ───────────────────────────────────────────────────────
   function escapeHtml(str) {
