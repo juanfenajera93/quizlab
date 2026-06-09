@@ -213,17 +213,18 @@ html, body {
 .player-timer-ring .ring-progress { stroke-width: 7; }
 .player-timer-ring .ring-number { font-size: 22px; }
 
-/* Fix 7: Question text max 3 lines, clamped size */
+/* Question text: always display in full, no truncation */
 .player-q-text {
   font-size: clamp(15px, 3.5vw, 18px);
   font-weight: 600;
   line-height: 1.4;
   margin-bottom: 10px;
   flex-shrink: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+}
+
+/* Question view scrolls when content is taller than viewport */
+#question-view {
+  overflow-y: auto;
 }
 
 /* Fix 7: Image constrained */
@@ -372,6 +373,13 @@ html, body {
 
 /* ms selected state */
 .player-ans-btn.selected-ms {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+  filter: brightness(1.1);
+}
+
+/* mc/tf/poll pre-confirm selected state */
+.player-ans-btn.selected-mc {
   outline: 3px solid #fff;
   outline-offset: 2px;
   filter: brightness(1.1);

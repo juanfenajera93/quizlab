@@ -12,6 +12,7 @@
   var msConfirmed = false;
   var currentOrdering = [];   // for order type
   var msSelections = [];      // for ms type
+  var mcSelectedIdx = null;   // for mc/tf/poll pre-confirm selection
   var timerInterval = null;
   var readTimerTimeout = null;
   var playerScore = 0;
@@ -158,6 +159,7 @@
     msConfirmed = false;
     msSelections = [];
     currentOrdering = [];
+    mcSelectedIdx = null;
 
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     clearTimer();
@@ -228,7 +230,7 @@
     var letters = ['A', 'B', 'C', 'D', 'E', 'F'];
 
     if (qType === 'tf') {
-      // Two large full-width buttons
+      // Two large full-width buttons — tap selects, confirm submits
       container.className = 'player-answers count-2';
       ['Verdadero', 'Falso'].forEach(function (label, i) {
         var btn = document.createElement('button');
@@ -239,10 +241,16 @@
           '<span class="btn-letter">' + (i === 0 ? 'V' : 'F') + '</span>' +
           '<span>' + escapeHtml(label) + '</span>';
         btn.addEventListener('click', (function (idx) {
-          return function () { submitAnswer(idx); };
+          return function () { selectMcOption(idx); };
         })(i));
         container.appendChild(btn);
       });
+      var confirmBtn = document.createElement('button');
+      confirmBtn.id = 'ms-confirm-btn';
+      confirmBtn.className = 'ms-confirm-btn';
+      confirmBtn.textContent = 'Confirmar';
+      confirmBtn.addEventListener('click', confirmMcAnswer);
+      container.parentNode.insertBefore(confirmBtn, container.nextSibling);
 
     } else if (qType === 'ms') {
       // Multi-select: tap toggles, confirm button
@@ -271,14 +279,20 @@
       container.parentNode.insertBefore(confirmBtn, container.nextSibling);
 
     } else if (qType === 'order') {
-      // Order type: vertical list with up/down arrows
+      // Order type: vertical list with up/down arrows, explicit confirm
       currentOrdering = options.map(function (_, i) { return i; });
       container.className = 'player-answers'; // not grid for order
       container.style.display = 'block';
       renderOrderList(container, options);
+      var confirmBtn = document.createElement('button');
+      confirmBtn.id = 'ms-confirm-btn';
+      confirmBtn.className = 'ms-confirm-btn visible';
+      confirmBtn.textContent = 'Confirmar Orden';
+      confirmBtn.addEventListener('click', confirmOrderAnswer);
+      container.parentNode.insertBefore(confirmBtn, container.nextSibling);
 
     } else {
-      // mc or poll: standard grid
+      // mc or poll: tap selects, confirm submits
       container.className = 'player-answers count-' + options.length;
       options.forEach(function (opt, i) {
         var btn = document.createElement('button');
@@ -289,10 +303,16 @@
           '<span class="btn-letter">' + (letters[i] || String(i + 1)) + '</span>' +
           '<span>' + escapeHtml(String(opt)) + '</span>';
         btn.addEventListener('click', (function (idx) {
-          return function () { submitAnswer(idx); };
+          return function () { selectMcOption(idx); };
         })(i));
         container.appendChild(btn);
       });
+      var confirmBtn = document.createElement('button');
+      confirmBtn.id = 'ms-confirm-btn';
+      confirmBtn.className = 'ms-confirm-btn';
+      confirmBtn.textContent = 'Confirmar';
+      confirmBtn.addEventListener('click', confirmMcAnswer);
+      container.parentNode.insertBefore(confirmBtn, container.nextSibling);
     }
   }
 
@@ -423,6 +443,40 @@
     var confirmBtn = document.getElementById('ms-confirm-btn');
     if (confirmBtn) confirmBtn.style.display = 'none';
 
+    document.getElementById('answered-overlay').classList.add('show');
+  }
+
+  function selectMcOption(idx) {
+    if (answered) return;
+    mcSelectedIdx = idx;
+    document.querySelectorAll('.player-ans-btn').forEach(function (btn) {
+      if (parseInt(btn.dataset.idx) === idx) {
+        btn.classList.add('selected-mc');
+      } else {
+        btn.classList.remove('selected-mc');
+      }
+    });
+    var confirmBtn = document.getElementById('ms-confirm-btn');
+    if (confirmBtn) confirmBtn.classList.add('visible');
+  }
+
+  function confirmMcAnswer() {
+    if (answered || mcSelectedIdx === null) return;
+    document.querySelectorAll('.player-ans-btn').forEach(function (btn) {
+      btn.classList.remove('selected-mc');
+    });
+    var confirmBtn = document.getElementById('ms-confirm-btn');
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    submitAnswer(mcSelectedIdx);
+  }
+
+  function confirmOrderAnswer() {
+    if (answered) return;
+    answered = true;
+    sendOrderUpdate();
+    document.querySelectorAll('.order-arrow-btn').forEach(function (b) { b.disabled = true; });
+    var confirmBtn = document.getElementById('ms-confirm-btn');
+    if (confirmBtn) confirmBtn.style.display = 'none';
     document.getElementById('answered-overlay').classList.add('show');
   }
 
@@ -612,15 +666,28 @@
         timerInterval = null;
         updateTimerDisplay(0, limit);
         if (!answered) {
-          // For order type: auto-submit current ordering
           if (currentQuestionType === 'order') {
             answered = true;
             sendOrderUpdate();
+            document.getElementById('answered-overlay').classList.add('show');
+            document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
+            var confirmBtn = document.getElementById('ms-confirm-btn');
+            if (confirmBtn) confirmBtn.style.display = 'none';
+          } else if (mcSelectedIdx !== null) {
+            // mc/tf/poll: player selected but hadn't pressed confirm — auto-confirm now
+            document.querySelectorAll('.player-ans-btn').forEach(function (btn) {
+              btn.classList.remove('selected-mc');
+            });
+            var cb = document.getElementById('ms-confirm-btn');
+            if (cb) cb.style.display = 'none';
+            submitAnswer(mcSelectedIdx);
+          } else {
+            // ms without confirm, or mc/tf/poll with no selection
+            document.getElementById('answered-overlay').classList.add('show');
+            document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
+            var confirmBtn = document.getElementById('ms-confirm-btn');
+            if (confirmBtn) confirmBtn.style.display = 'none';
           }
-          document.getElementById('answered-overlay').classList.add('show');
-          document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
-          var confirmBtn = document.getElementById('ms-confirm-btn');
-          if (confirmBtn) confirmBtn.style.display = 'none';
         }
       } else {
         updateTimerDisplay(timeLeft, limit);
