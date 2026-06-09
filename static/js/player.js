@@ -62,11 +62,14 @@
     ws.onerror = function () {};
   }
 
+  var RECONNECT_DELAYS = [2000, 4000, 8000, 8000, 8000];
+
   function reconnect() {
-    var storedRoom = sessionStorage.getItem('ql_room');
-    var storedNick = sessionStorage.getItem('ql_nickname');
-    if (!storedRoom || !storedNick || reconnectAttempts >= 5) return;
-    var delay = (reconnectAttempts + 1) * 1000;
+    var storedRoom = sessionStorage.getItem('quizlab_room');
+    var storedNick = sessionStorage.getItem('quizlab_nickname');
+    var storedPid  = sessionStorage.getItem('quizlab_player_id');
+    if (!storedRoom || !storedNick || !storedPid || reconnectAttempts >= 5) return;
+    var delay = RECONNECT_DELAYS[reconnectAttempts] || 8000;
     reconnectAttempts++;
     showReconnectBanner();
     if (reconnectTimeout) { clearTimeout(reconnectTimeout); }
@@ -78,6 +81,7 @@
         ws.send(JSON.stringify({
           type: 'rejoin',
           room_code: storedRoom,
+          player_id: storedPid,
           nickname: storedNick
         }));
       };
@@ -85,8 +89,8 @@
         try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
       };
       ws.onclose = function () {
-        if (sessionStorage.getItem('ql_room')) {
-          setTimeout(reconnect, 500);
+        if (reconnectAttempts < 5 && sessionStorage.getItem('quizlab_room')) {
+          reconnect();
         }
       };
       ws.onerror = function () {};
@@ -117,7 +121,9 @@
       case 'reveal':        onReveal(msg);        break;
       case 'game_end':      onGameEnd(msg);       break;
       case 'state_sync':    onStateSync(msg);     break;
-      case 'game_ended':    onGameEnded(msg);     break;
+      case 'game_ended':    onGameEnded(msg);       break;
+      case 'rejoined':      onRejoined(msg);        break;
+      case 'ping':          send({ type: 'pong' }); break;
       case 'error':         showError(msg.message); break;
     }
   }
@@ -125,14 +131,14 @@
   function onJoined(msg) {
     playerId = msg.player_id;
     roomCode = msg.room_code;
-    sessionStorage.setItem('ql_room', msg.room_code);
-    sessionStorage.setItem('ql_nickname', document.getElementById('nickname-input').value.trim());
-    sessionStorage.setItem('ql_player_id', msg.player_id);
-    // Switch ws.onclose to reconnect mode now that we have a session
+    sessionStorage.setItem('quizlab_room', msg.room_code);
+    sessionStorage.setItem('quizlab_nickname', document.getElementById('nickname-input').value.trim());
+    sessionStorage.setItem('quizlab_player_id', msg.player_id);
     if (ws) {
       ws.onclose = function () {
-        if (sessionStorage.getItem('ql_room')) {
-          setTimeout(reconnect, 500);
+        if (sessionStorage.getItem('quizlab_room')) {
+          reconnectAttempts = 0;
+          reconnect();
         }
       };
     }
@@ -588,7 +594,7 @@
     reconnectAttempts = 0;
     playerId = msg.player_id;
     playerScore = msg.score || 0;
-    roomCode = sessionStorage.getItem('ql_room');
+    roomCode = sessionStorage.getItem('quizlab_room');
 
     if (msg.state === 'lobby') {
       showView('waiting-view');
@@ -618,6 +624,32 @@
     } else if (msg.state === 'reveal') {
       showReveal();
     } else if (msg.state === 'ended') {
+      showGameEnded();
+    }
+  }
+
+  function onRejoined(msg) {
+    hideReconnectBanner();
+    reconnectAttempts = 0;
+    playerScore = msg.score || 0;
+    if (ws) {
+      ws.onclose = function () {
+        if (sessionStorage.getItem('quizlab_room')) {
+          reconnectAttempts = 0;
+          reconnect();
+        }
+      };
+    }
+    var state = msg.state;
+    if (state === 'lobby') {
+      showView('waiting-view');
+    } else if (state === 'question') {
+      answered = true;
+      showView('question-view');
+      document.getElementById('answered-overlay').classList.add('show');
+    } else if (state === 'reveal') {
+      showReveal();
+    } else if (state === 'ended') {
       showGameEnded();
     }
   }
@@ -798,7 +830,7 @@
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible' &&
           (!ws || ws.readyState !== WebSocket.OPEN) &&
-          sessionStorage.getItem('ql_room')) {
+          sessionStorage.getItem('quizlab_room')) {
         reconnectAttempts = 0;
         reconnect();
       }

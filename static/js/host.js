@@ -53,6 +53,7 @@
       case 'answer_counts':   onAnswerCounts(msg);    break;
       case 'reveal':          onReveal(msg);          break;
       case 'game_end':        onGameEnd(msg);         break;
+      case 'ping':            send({ type: 'pong' }); break;
       case 'error':           alert('Error: ' + msg.message); break;
     }
   }

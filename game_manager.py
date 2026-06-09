@@ -529,61 +529,30 @@ class GameManager:
             except Exception:
                 pass
 
-    async def rejoin_player(self, room_code: str, nickname: str,
-                            new_websocket: WebSocket) -> Optional[dict]:
+    async def rejoin_player(self, room_code: str, player_id: str, nickname: str,
+                            websocket: WebSocket) -> dict:
         session = self.get_session(room_code)
         if not session or session.state == "ended":
-            return None
-        player = next((p for p in session.players.values()
-                       if p.nickname == nickname), None)
+            return {"ok": False, "reason": "room_not_found"}
+        player = session.players.get(player_id)
         if not player:
-            return None
-        player.websocket = new_websocket
+            player = next(
+                (p for p in session.players.values()
+                 if p.nickname.lower() == nickname.lower()),
+                None,
+            )
+        if not player:
+            return {"ok": False, "reason": "player_not_found"}
+        player.websocket = websocket
         player.connected = True
         session.last_activity = datetime.utcnow()
-        q = session.current_question
-        state_msg: dict = {
-            "type": "state_sync",
-            "state": session.state,
+        return {
+            "ok": True,
             "player_id": player.player_id,
+            "state": session.state,
             "score": player.score,
             "question_index": session.current_question_index,
-            "total_questions": len(session.questions),
         }
-        if session.state == "question" and q:
-            qi = session.current_question_index
-            q_type = q.get("question_type", "mc")
-            now = time.time()
-            if session.answer_phase_start_time and now < session.answer_phase_start_time:
-                state_msg["phase"] = "reading"
-                state_msg["read_time_remaining"] = max(
-                    0.0, session.answer_phase_start_time - now)
-            else:
-                answer_deadline = (session.answer_phase_start_time or now) + q.get(
-                    "time_limit", 20)
-                state_msg["phase"] = "answering"
-                state_msg["answer_time_remaining"] = max(0.0, answer_deadline - now)
-            options = q.get("options", [])
-            if q_type == "order" and qi in session.order_correct:
-                argsort = session.order_correct[qi]
-                shuffled_options = [""] * len(argsort)
-                for shuffled_pos, orig_pos in enumerate(argsort):
-                    if orig_pos < len(options):
-                        shuffled_options[shuffled_pos] = options[orig_pos]
-                options = shuffled_options
-            state_msg["question"] = {
-                "id": qi,
-                "text": q["text"],
-                "image_url": q.get("image_url") or "",
-                "options": options,
-                "time_limit": q.get("time_limit", 20),
-                "read_time": session.read_time,
-                "number": qi + 1,
-                "total": len(session.questions),
-                "question_type": q_type,
-            }
-            state_msg["already_answered"] = qi in player.confirmed
-        return state_msg
 
     async def end_session(self, room_code: str):
         session = self.get_session(room_code)
@@ -594,6 +563,22 @@ class GameManager:
             "type": "game_ended",
             "message": "El quiz ha sido detenido por el profesor.",
         })
+
+    async def ping_all_players(self):
+        for session in list(self.sessions.values()):
+            if session.state == "ended":
+                continue
+            for player in session.players.values():
+                if player.connected:
+                    try:
+                        await player.websocket.send_json({"type": "ping"})
+                    except Exception:
+                        player.connected = False
+            if session.host_websocket:
+                try:
+                    await session.host_websocket.send_json({"type": "ping"})
+                except Exception:
+                    pass
 
     def cleanup_old_sessions(self):
         cutoff = datetime.utcnow() - timedelta(hours=2)

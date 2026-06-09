@@ -63,12 +63,19 @@ async def on_startup():
             "between Render deploys. Migrate uploads to Supabase Storage for persistence."
         )
     asyncio.create_task(_cleanup_loop())
+    asyncio.create_task(_heartbeat_loop())
 
 
 async def _cleanup_loop():
     while True:
         await asyncio.sleep(600)
         game_manager.cleanup_old_sessions()
+
+
+async def _heartbeat_loop():
+    while True:
+        await asyncio.sleep(25)
+        await game_manager.ping_all_players()
 
 
 def _require_admin(request: Request):
@@ -621,14 +628,20 @@ async def ws_player(websocket: WebSocket):
 
             elif t == "rejoin":
                 rc = data.get("room_code", "").strip().upper()
+                pid = data.get("player_id", "").strip()
                 nickname = data.get("nickname", "").strip()
-                state_msg = await game_manager.rejoin_player(rc, nickname, websocket)
-                if state_msg is None:
-                    await websocket.send_json({"type": "error", "message": "No se pudo reconectar"})
-                else:
+                result = await game_manager.rejoin_player(rc, pid, nickname, websocket)
+                if result["ok"]:
                     room_code = rc
-                    player_id = state_msg["player_id"]
-                    await websocket.send_json(state_msg)
+                    player_id = result["player_id"]
+                    await websocket.send_json({
+                        "type": "rejoined",
+                        "state": result["state"],
+                        "score": result["score"],
+                        "question_index": result["question_index"],
+                    })
+                else:
+                    await websocket.send_json({"type": "error", "message": result["reason"]})
 
     except WebSocketDisconnect:
         if player_id and room_code:
