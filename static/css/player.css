@@ -225,6 +225,7 @@ html, body {
 /* Question view scrolls when content is taller than viewport */
 #question-view {
   overflow-y: auto;
+  padding-bottom: 80px;
 }
 
 /* Fix 7: Image constrained */
