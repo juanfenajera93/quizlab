@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Detalle de Sesión — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      {% if quiz %}
+      <a href="/admin/quiz/{{ quiz.id }}/history" class="btn btn-ghost btn-sm">← Historial</a>
+      {% endif %}
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
+    </div>
+  </nav>
+
+  <div class="dash-header">
+    <div>
+      <h1>Detalle de Sesión</h1>
+      <p style="margin:4px 0 0;color:var(--text-muted);font-size:14px;text-transform:none;letter-spacing:normal">
+        {{ session.played_at.strftime('%d %b %Y  %H:%M') }} · Sala {{ session.room_code }} · {{ session.student_count }} estudiante{{ 's' if session.student_count != 1 else '' }}
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Leaderboard ── -->
+  <h3 class="course-group-heading" style="margin-top:0">Clasificación Final</h3>
+  {% if results %}
+  <div style="overflow-x:auto;margin-bottom:40px">
+    <table class="stat-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Nombre</th>
+          <th style="text-align:right">Puntos</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr class="{{ 'top1' if r.rank == 1 else 'top2' if r.rank == 2 else 'top3' if r.rank == 3 else '' }}">
+          <td class="rank-cell">
+            {% if r.rank == 1 %}🥇{% elif r.rank == 2 %}🥈{% elif r.rank == 3 %}🥉{% else %}{{ r.rank }}{% endif %}
+          </td>
+          <td>{{ r.nickname }}</td>
+          <td style="text-align:right;font-family:'Syne Mono',monospace;font-size:14px">{{ r.score }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted)">Sin resultados registrados.</p>
+  {% endif %}
+
+  <!-- ── Per-question stats ── -->
+  <h3 class="course-group-heading">Análisis por Pregunta</h3>
+  {% if stats %}
+  <div style="overflow-x:auto;margin-bottom:40px">
+    <table class="stat-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Pregunta</th>
+          <th>Tipo</th>
+          <th style="text-align:right">Respondieron</th>
+          <th style="text-align:right">% Correcto</th>
+          <th style="text-align:right">T. Prom.</th>
+          <th>Distribución</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in stats %}
+        <tr>
+          <td class="rank-cell">{{ s.question_index + 1 }}</td>
+          <td style="max-width:280px">{{ s.question_text }}</td>
+          <td><span class="badge">{{ s.question_type|upper }}</span></td>
+          <td style="text-align:right">{{ s.total_answers }}</td>
+          <td style="text-align:right">
+            {% if s.question_type not in ('poll', 'wordcloud') %}
+              {% if s.total_answers > 0 %}
+                {{ "%.0f"|format(s.correct_count / s.total_answers * 100) }}%
+              {% else %}—{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td style="text-align:right;font-family:'Syne Mono',monospace;font-size:13px">
+            {% if s.avg_time_seconds > 0 %}{{ "%.1f"|format(s.avg_time_seconds) }}s{% else %}—{% endif %}
+          </td>
+          <td class="dist-cell">
+            {% if s.question_type == 'wordcloud' and s.distribution %}
+              {% for w in s.distribution %}
+              <span class="dist-word">{{ w.word }} <em>×{{ w.count }}</em></span>
+              {% endfor %}
+            {% elif s.question_type in ('mc', 'tf', 'ms', 'poll') and s.distribution %}
+              {% for d in s.distribution %}
+              <span class="dist-bar-row">
+                <span class="dist-letter">{{ d.label }}</span>
+                <span class="dist-bar-track"><span class="dist-bar-fill" style="width:{{ d.pct }}%"></span></span>
+                <span class="dist-pct">{{ d.pct }}%</span>
+              </span>
+              {% endfor %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted)">Sin estadísticas registradas.</p>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<style>
+.stat-table { width:100%; border-collapse:collapse; font-size:14px; }
+.stat-table th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border);
+  font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:700;
+  text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); }
+.stat-table td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+.stat-table tr.top1 td:first-child { color:#FFD700; font-weight:900; }
+.stat-table tr.top2 td:first-child { color:#C0C0C0; font-weight:900; }
+.stat-table tr.top3 td:first-child { color:#CD7F32; font-weight:900; }
+.stat-table tr:hover td { background:var(--surface-2); }
+.rank-cell { font-family:'Barlow Condensed',sans-serif; font-weight:900; font-size:18px; width:36px; }
+.dist-cell { min-width:160px; }
+.dist-bar-row { display:flex; align-items:center; gap:6px; margin-bottom:3px; }
+.dist-letter { font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:12px; width:14px; }
+.dist-bar-track { flex:1; height:8px; background:var(--surface-2); border-radius:4px; overflow:hidden; }
+.dist-bar-fill { height:100%; background:var(--lime); border-radius:4px; }
+.dist-pct { font-family:'Syne Mono',monospace; font-size:11px; color:var(--text-muted); min-width:36px; }
+.dist-word { display:inline-block; background:var(--surface-2); border:1px solid var(--border);
+  border-radius:4px; padding:2px 7px; margin:2px 2px; font-size:13px; }
+.dist-word em { font-style:normal; color:var(--text-muted); font-size:11px; }
+</style>
+{% endblock %}

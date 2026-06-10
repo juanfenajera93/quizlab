@@ -53,9 +53,36 @@
       case 'answer_counts':   onAnswerCounts(msg);    break;
       case 'reveal':          onReveal(msg);          break;
       case 'game_end':        onGameEnd(msg);         break;
-      case 'ping':            send({ type: 'pong' }); break;
+      case 'ping':              send({ type: 'pong' }); break;
+      case 'reaction':          onReaction(msg);        break;
+      case 'wordcloud_update':  onWordcloudUpdate(msg); break;
       case 'error':           alert('Error: ' + msg.message); break;
     }
+  }
+
+  function onReaction(msg) {
+    var el = document.createElement('div');
+    el.className = 'reaction-float';
+    el.style.left = (8 + Math.random() * 84) + '%';
+    el.innerHTML =
+      '<span class="reaction-emoji">' + escapeHtml(msg.emoji) + '</span>' +
+      '<span class="reaction-nick">' + escapeHtml(msg.nickname) + '</span>';
+    document.body.appendChild(el);
+    setTimeout(function () { el.remove(); }, 2500);
+  }
+
+  function onWordcloudUpdate(msg) {
+    if (answersRevealed) return;
+    var feed = document.getElementById('word-feed');
+    if (!feed) return;
+    var words = msg.words || [];
+    feed.innerHTML = '';
+    words.slice().reverse().slice(0, 60).forEach(function (word) {
+      var chip = document.createElement('span');
+      chip.className = 'word-chip';
+      chip.textContent = escapeHtml(word);
+      feed.appendChild(chip);
+    });
   }
 
   function onSessionCreated(msg) {
@@ -201,8 +228,19 @@
   // Area 6 + 7: Build answer tiles dynamically
   function buildAnswerTiles(msg) {
     if (!msg) return;
+    var qType = msg.question_type || 'mc';
     var tiles = document.getElementById('answer-tiles');
     tiles.innerHTML = '';
+
+    if (qType === 'wordcloud') {
+      tiles.className = 'answer-tiles';
+      var note = document.createElement('div');
+      note.className = 'wc-waiting';
+      note.textContent = 'Los estudiantes están escribiendo...';
+      tiles.appendChild(note);
+      return;
+    }
+
     var options = msg.options || [];
     var numOptions = options.length;
     var letters = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -243,23 +281,58 @@
       buildAnswerTiles(currentQuestion);
     }
 
-    document.querySelectorAll('.answer-tile').forEach(function (t) {
-      var idx = parseInt(t.dataset.idx);
-      if (qType === 'poll') {
-        // Poll: no correct/wrong — just show all
-        t.style.opacity = '1';
-      } else if (qType === 'order') {
-        // Order: highlight all tiles (they show shuffled order, no single correct)
-        t.style.opacity = '1';
-      } else {
-        // mc, tf, ms
-        if (idx === correctIdx) {
-          t.classList.add('correct');
+    if (qType === 'wordcloud') {
+      // Build word cloud in tiles area
+      var tiles = document.getElementById('answer-tiles');
+      tiles.innerHTML = '';
+      tiles.className = 'wordcloud-display';
+
+      var titleEl = document.createElement('div');
+      titleEl.className = 'wc-reveal-title';
+      titleEl.textContent = 'NUBE DE PALABRAS';
+      tiles.appendChild(titleEl);
+
+      var cloudEl = document.createElement('div');
+      cloudEl.className = 'wc-cloud';
+      tiles.appendChild(cloudEl);
+
+      var wordsMap = msg.words || {};
+      var entries = Object.keys(wordsMap)
+        .map(function (w) { return [w, wordsMap[w]]; })
+        .sort(function (a, b) { return b[1] - a[1]; })
+        .slice(0, 20);
+      var maxFreq = entries.length > 0 ? entries[0][1] : 1;
+      var colors = ['var(--answer-a)', 'var(--answer-b)', 'var(--answer-c)',
+                    'var(--answer-d)', 'var(--answer-e)', 'var(--answer-f)'];
+      entries.forEach(function (pair, i) {
+        var size = Math.round(18 + (pair[1] / maxFreq) * (72 - 18));
+        var span = document.createElement('span');
+        span.className = 'wc-word';
+        span.style.fontSize = size + 'px';
+        span.style.color = colors[i % colors.length];
+        span.textContent = pair[0];
+        cloudEl.appendChild(span);
+      });
+
+      var wordFeed = document.getElementById('word-feed');
+      if (wordFeed) wordFeed.style.display = 'none';
+
+    } else {
+      document.querySelectorAll('.answer-tile').forEach(function (t) {
+        var idx = parseInt(t.dataset.idx);
+        if (qType === 'poll') {
+          t.style.opacity = '1';
+        } else if (qType === 'order') {
+          t.style.opacity = '1';
         } else {
-          t.classList.add('wrong');
+          if (idx === correctIdx) {
+            t.classList.add('correct');
+          } else {
+            t.classList.add('wrong');
+          }
         }
-      }
-    });
+      });
+    }
 
     var tilesEl = document.getElementById('answer-tiles');
     if (tilesEl) tilesEl.classList.remove('read-phase');
@@ -336,7 +409,23 @@
   // ── Chart — built dynamically for up to 6 options ─────────────
   function buildChart(options) {
     var barRows = document.querySelector('.bar-rows');
+    var wordFeed = document.getElementById('word-feed');
+    var chartTitle = document.querySelector('.chart-title');
     if (!barRows) return;
+
+    var qType = currentQuestion ? (currentQuestion.question_type || 'mc') : 'mc';
+
+    if (qType === 'wordcloud') {
+      barRows.style.display = 'none';
+      if (wordFeed) { wordFeed.style.display = 'flex'; wordFeed.innerHTML = ''; }
+      if (chartTitle) chartTitle.textContent = 'Palabras enviadas';
+      return;
+    }
+
+    if (wordFeed) wordFeed.style.display = 'none';
+    barRows.style.display = '';
+    if (chartTitle) chartTitle.textContent = 'Live Answers';
+
     barRows.innerHTML = '';
     var letters = ['A', 'B', 'C', 'D', 'E', 'F'];
     options.forEach(function (opt, i) {

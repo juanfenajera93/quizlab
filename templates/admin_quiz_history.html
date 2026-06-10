@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Historial — {{ quiz.name }} — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      <a href="/admin/quiz/{{ quiz.id }}/edit" class="btn btn-ghost btn-sm">← Editar</a>
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
+    </div>
+  </nav>
+
+  <div class="dash-header">
+    <div>
+      <h1>{{ quiz.name }}</h1>
+      <p style="margin:4px 0 0;color:var(--text-muted);font-size:14px;text-transform:none;letter-spacing:normal">Historial de sesiones jugadas</p>
+    </div>
+    <span class="count">{{ sessions|length }} sesión{{ 'es' if sessions|length != 1 else '' }}</span>
+  </div>
+
+  {% if sessions %}
+  <div class="quiz-list">
+    {% for s in sessions %}
+    <div class="quiz-card">
+      <div class="quiz-card-body">
+        <span class="quiz-name" style="font-size:17px">{{ s.played_at.strftime('%d %b %Y  %H:%M') }}</span>
+        <div class="quiz-meta">
+          <span class="quiz-stat">{{ s.student_count }} estudiante{{ 's' if s.student_count != 1 else '' }}</span>
+          {% if s.top3 %}
+          <span class="quiz-stat">🏆 {{ s.top3[0].nickname }}: {{ s.top3[0].score }} pts</span>
+          {% endif %}
+          {% if s.top3|length > 1 %}
+          <span class="quiz-stat text-muted">🥈 {{ s.top3[1].nickname }}: {{ s.top3[1].score }} pts</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="quiz-card-actions">
+        <a href="/admin/session/{{ s.id }}" class="btn btn-ghost btn-sm">Ver Detalle →</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h2>Este quiz aún no ha sido jugado.</h2>
+    <p>Inicia una sesión desde el dashboard para ver el historial aquí.</p>
+    <a href="/admin/host/{{ quiz.id }}" class="btn btn-primary btn-lg">Iniciar Sesión →</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

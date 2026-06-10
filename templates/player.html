@@ -58,7 +58,7 @@
       <div class="dot-pulse">
         <span></span><span></span><span></span>
       </div>
-      <span id="waiting-pulse-text">Esperando al host...</span>
+      <span id="waiting-pulse-text">Esperando que el profesor inicie...</span>
     </div>
 
     <div class="waiting-players">
@@ -118,7 +118,7 @@
     <div class="dot-pulse">
       <span></span><span></span><span></span>
     </div>
-    <span>Esperando al host...</span>
+    <span>Esperando la siguiente pregunta...</span>
   </div>
 </div>
 
@@ -155,6 +155,12 @@
   <div class="final-play-again">
     <a href="/play" class="btn btn-ghost">Jugar de nuevo</a>
   </div>
+</div>
+<div id="emoji-bar" class="emoji-bar" style="display:none">
+  <button class="emoji-btn" onclick="sendReaction('🔥')">🔥</button>
+  <button class="emoji-btn" onclick="sendReaction('💀')">💀</button>
+  <button class="emoji-btn" onclick="sendReaction('🤔')">🤔</button>
+  <button class="emoji-btn" onclick="sendReaction('✅')">✅</button>
 </div>
 {% endblock %}
 

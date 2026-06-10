@@ -89,6 +89,18 @@
   margin-bottom: 6px;
 }
 
+.course-group-heading {
+  font-size: 14px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 28px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.course-group-heading:first-of-type { margin-top: 0; }
+
 .quiz-list {
   display: flex;
   flex-direction: column;

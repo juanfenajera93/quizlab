@@ -32,9 +32,9 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
-from database import create_db_and_tables, get_session, _is_postgres
+from database import create_db_and_tables, engine, get_session, _is_postgres
 from game_manager import game_manager
-from models import Question, Quiz
+from models import Question, Quiz, QuizSession, SessionResult, QuestionStat
 
 load_dotenv()
 
@@ -76,6 +76,50 @@ async def _heartbeat_loop():
     while True:
         await asyncio.sleep(25)
         await game_manager.ping_all_players()
+
+
+async def _persist_session(room_code: str):
+    gs = game_manager.get_session(room_code)
+    if not gs or gs.analytics_persisted or not gs.analytics_data:
+        return
+    try:
+        with Session(engine) as db:
+            data = gs.analytics_data
+            quiz_id = gs.quiz_data.get("id")
+            if not quiz_id:
+                return
+            qs = QuizSession(
+                quiz_id=quiz_id,
+                room_code=data["room_code"],
+                student_count=data["student_count"],
+            )
+            db.add(qs)
+            db.commit()
+            db.refresh(qs)
+            for entry in data["leaderboard"]:
+                db.add(SessionResult(
+                    session_id=qs.id,
+                    nickname=entry["nickname"],
+                    score=entry["score"],
+                    rank=entry["rank"],
+                ))
+            db.commit()
+            for stat in data["question_stats"]:
+                db.add(QuestionStat(
+                    session_id=qs.id,
+                    question_index=stat["question_index"],
+                    question_text=stat["question_text"],
+                    question_type=stat["question_type"],
+                    correct_count=stat["correct_count"],
+                    total_answers=stat["total_answers"],
+                    avg_time_seconds=stat["avg_time_seconds"],
+                    answers_json=stat["answers_json"],
+                ))
+            db.commit()
+            gs.analytics_persisted = True
+    except Exception as exc:
+        import logging
+        logging.error(f"Failed to persist session {room_code}: {exc}")
 
 
 def _require_admin(request: Request):
@@ -130,6 +174,7 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_session)):
     quizzes_data = []
     for quiz in quizzes:
         count = len(db.exec(select(Question).where(Question.quiz_id == quiz.id)).all())
+        play_count = len(db.exec(select(QuizSession).where(QuizSession.quiz_id == quiz.id)).all())
         quizzes_data.append(
             {
                 "id": quiz.id,
@@ -137,10 +182,25 @@ async def admin_dashboard(request: Request, db: Session = Depends(get_session)):
                 "course_tag": quiz.course_tag,
                 "question_count": count,
                 "last_played": quiz.last_played,
+                "play_count": play_count,
             }
         )
+    groups_dict: dict = {}
+    for q in quizzes_data:
+        tag = q["course_tag"] or "Sin materia"
+        if tag not in groups_dict:
+            groups_dict[tag] = []
+        groups_dict[tag].append(q)
+    sorted_tags = sorted(t for t in groups_dict if t != "Sin materia")
+    if "Sin materia" in groups_dict:
+        sorted_tags.append("Sin materia")
+    quiz_groups = [{"tag": t, "quizzes": groups_dict[t]} for t in sorted_tags]
     return templates.TemplateResponse(
-        "admin_dashboard.html", {"request": request, "quizzes": quizzes_data}
+        "admin_dashboard.html", {
+            "request": request,
+            "quiz_groups": quiz_groups,
+            "quiz_count": len(quizzes_data),
+        }
     )
 
 
@@ -256,6 +316,96 @@ async def delete_quiz(
     return JSONResponse({"ok": True})
 
 
+# ─── Session history ─────────────────────────────────────────────────────────
+
+@app.get("/admin/quiz/{quiz_id}/history", response_class=HTMLResponse)
+async def quiz_history(
+    request: Request, quiz_id: int, db: Session = Depends(get_session)
+):
+    if not request.session.get("admin"):
+        return RedirectResponse("/admin/login")
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404)
+    quiz_sessions = db.exec(
+        select(QuizSession).where(QuizSession.quiz_id == quiz_id).order_by(QuizSession.played_at.desc())
+    ).all()
+    sessions_data = []
+    for qs in quiz_sessions:
+        top3 = db.exec(
+            select(SessionResult)
+            .where(SessionResult.session_id == qs.id)
+            .order_by(SessionResult.rank)
+        ).all()[:3]
+        sessions_data.append({
+            "id": qs.id,
+            "played_at": qs.played_at,
+            "student_count": qs.student_count,
+            "room_code": qs.room_code,
+            "top3": [{"nickname": r.nickname, "score": r.score, "rank": r.rank} for r in top3],
+        })
+    return templates.TemplateResponse(
+        "admin_quiz_history.html",
+        {"request": request, "quiz": quiz, "sessions": sessions_data},
+    )
+
+
+@app.get("/admin/session/{session_id}", response_class=HTMLResponse)
+async def session_detail(
+    request: Request, session_id: int, db: Session = Depends(get_session)
+):
+    if not request.session.get("admin"):
+        return RedirectResponse("/admin/login")
+    qs = db.get(QuizSession, session_id)
+    if not qs:
+        raise HTTPException(status_code=404)
+    quiz = db.get(Quiz, qs.quiz_id)
+    results = db.exec(
+        select(SessionResult)
+        .where(SessionResult.session_id == session_id)
+        .order_by(SessionResult.rank)
+    ).all()
+    stats = db.exec(
+        select(QuestionStat)
+        .where(QuestionStat.session_id == session_id)
+        .order_by(QuestionStat.question_index)
+    ).all()
+    stats_data = []
+    for stat in stats:
+        try:
+            answers_raw = json.loads(stat.answers_json)
+        except Exception:
+            answers_raw = []
+        total_ans = stat.total_answers
+        distribution = []
+        if stat.question_type in ("mc", "tf", "ms", "poll") and isinstance(answers_raw, list):
+            for i, cnt in enumerate(answers_raw):
+                pct = round(cnt / total_ans * 100, 1) if total_ans > 0 else 0.0
+                distribution.append({"label": chr(65 + i), "count": cnt, "pct": pct})
+        elif stat.question_type == "wordcloud" and isinstance(answers_raw, dict):
+            sorted_words = sorted(answers_raw.items(), key=lambda x: x[1], reverse=True)[:5]
+            distribution = [{"word": w, "count": c} for w, c in sorted_words]
+        stats_data.append({
+            "question_index": stat.question_index,
+            "question_text": stat.question_text[:60] + ("…" if len(stat.question_text) > 60 else ""),
+            "question_type": stat.question_type,
+            "correct_count": stat.correct_count,
+            "total_answers": total_ans,
+            "avg_time_seconds": stat.avg_time_seconds,
+            "distribution": distribution,
+        })
+    return templates.TemplateResponse(
+        "admin_session_detail.html",
+        {
+            "request": request,
+            "session": qs,
+            "quiz": quiz,
+            "results": results,
+            "stats": stats_data,
+        },
+    )
+
+
 # ─── Image upload ─────────────────────────────────────────────────────────────
 # TODO: migrate uploads to Supabase Storage for persistence in production
 
@@ -331,7 +481,7 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
 
         # Determine type
         q_type = (row.get("type") or "mc").strip().lower()
-        if q_type not in ("mc", "tf", "ms", "poll", "order"):
+        if q_type not in ("mc", "tf", "ms", "poll", "order", "wordcloud"):
             q_type = "mc"
 
         # Collect options
@@ -352,7 +502,10 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
         if q_type == "tf" and len(opts) < 2:
             opts = ["Verdadero", "Falso"]
 
-        if q_type not in ("poll", "order") and len(opts) < 2:
+        if q_type == "wordcloud":
+            opts = []
+
+        if q_type not in ("poll", "order", "wordcloud") and len(opts) < 2:
             errors.append(f"Row {i}: need at least 2 options, skipped")
             continue
 
@@ -384,6 +537,9 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
         elif q_type == "poll":
             correct_json = ""
 
+        elif q_type == "wordcloud":
+            correct_json = ""
+
         elif q_type == "order":
             # The input order is the correct order; correct_json = [0,1,...,n-1]
             correct_json = json.dumps(list(range(len(opts))))
@@ -397,10 +553,11 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
 
         # Points
         try:
-            pts = int(row.get("points") or 100)
-            pts = max(1, pts)
+            default_pts = 0 if q_type == "wordcloud" else 100
+            pts = int(row.get("points") or default_pts)
+            pts = max(0, pts)
         except (ValueError, TypeError):
-            pts = 100
+            pts = 0 if q_type == "wordcloud" else 100
 
         image_url = (row.get("image_url") or "").strip() or None
 
@@ -540,6 +697,9 @@ async def ws_host(websocket: WebSocket, quiz_id: int, db: Session = Depends(get_
                 await game_manager.next_question(room_code)
             elif t == "end_game":
                 await game_manager.end_game(room_code)
+            _s = game_manager.get_session(room_code)
+            if _s and _s.state == "ended" and not _s.analytics_persisted:
+                await _persist_session(room_code)
     except WebSocketDisconnect:
         session = game_manager.get_session(room_code)
         if session:
@@ -624,6 +784,20 @@ async def ws_player(websocket: WebSocket):
                     player_id,
                     int(data.get("question_id", -1)),
                     data.get("ordering", []),
+                )
+
+            elif t == "wordcloud_answer" and player_id and room_code:
+                try:
+                    wc_qid = int(data.get("question_id", -1))
+                except (ValueError, TypeError):
+                    wc_qid = -1
+                await game_manager.handle_wordcloud_answer(
+                    room_code, player_id, wc_qid, data.get("text", "")
+                )
+
+            elif t == "reaction" and player_id and room_code:
+                await game_manager.broadcast_reaction(
+                    room_code, player_id, data.get("emoji", "")
                 )
 
             elif t == "rejoin":

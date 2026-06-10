@@ -37,6 +37,11 @@ class GameSession:
         self.created_at = datetime.utcnow()
         # For "order" type: store the correct ordering to expect from players
         self.order_correct: Dict[int, list] = {}
+        # Analytics
+        self.analytics_data: dict = {}
+        self.analytics_persisted: bool = False
+        # Word cloud answers: {question_index: {player_id: text}}
+        self.wordcloud_answers: Dict[int, Dict[str, str]] = {}
 
     @property
     def questions(self) -> List[dict]:
@@ -136,6 +141,11 @@ def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit, b
             return speed_bonus(time_taken), True
         pts = math.floor(base_points * (matching / len(correct_order)))
         return pts, False
+
+    elif q_type == "wordcloud":
+        if player_answer and isinstance(player_answer, str) and player_answer.strip():
+            return base_points, True
+        return 0, False
 
     return 0, False
 
@@ -458,27 +468,38 @@ class GameManager:
                 "question_type": q_type,
                 "correct_json": scoring_correct_json,
                 "correct_index": correct_index,
-                "your_answer": answer if answer is not None else -1,
+                "your_answer": answer if (answer is not None and not isinstance(answer, str)) else -1,
                 "is_correct": is_correct,
                 "points_earned": pts_earned,
                 "total_score": player.score,
                 "rank": rank,
                 "total_players": len([p for p in session.players.values() if p.connected]),
                 "leaderboard": leaderboard[:5],
+                "no_points": base_points == 0 or q_type == "wordcloud",
             }
+            if q_type == "wordcloud":
+                reveal_msg["your_text"] = player.answers.get(qi, "")
 
             try:
                 await player.websocket.send_json(reveal_msg)
             except Exception:
                 player.connected = False
 
-        await self._send_host(session, {
+        host_reveal: dict = {
             "type": "reveal",
             "question_type": q_type,
             "correct_index": correct_index,
             "correct_json": scoring_correct_json,
             "leaderboard": leaderboard[:5],
-        })
+        }
+        if q_type == "wordcloud":
+            freq_dict: Dict[str, int] = {}
+            for txt in session.wordcloud_answers.get(qi, {}).values():
+                key = txt.lower().strip()
+                if key:
+                    freq_dict[key] = freq_dict.get(key, 0) + 1
+            host_reveal["words"] = freq_dict
+        await self._send_host(session, host_reveal)
 
     async def next_question(self, room_code: str):
         session = self.get_session(room_code)
@@ -494,6 +515,7 @@ class GameManager:
         session = self.get_session(room_code)
         if not session:
             return
+        session.analytics_data = self.compile_analytics(session)
         session.state = "ended"
         leaderboard = session.get_leaderboard()
         msg = {"type": "game_end", "leaderboard": leaderboard}
@@ -579,6 +601,140 @@ class GameManager:
                     await session.host_websocket.send_json({"type": "ping"})
                 except Exception:
                     pass
+
+    def compile_analytics(self, session: GameSession) -> dict:
+        question_stats = []
+        for qi, q in enumerate(session.questions):
+            q_type = q.get("question_type", "mc")
+            base_points = q.get("points", 100)
+            correct_json = q.get("correct_json", "")
+            time_limit = q.get("time_limit", 20)
+
+            if q_type == "order":
+                scoring_correct_json = json.dumps(session.order_correct.get(qi, []))
+            else:
+                scoring_correct_json = correct_json
+
+            answered_players = [
+                p for p in session.players.values()
+                if qi in p.answers or qi in p.selections
+            ]
+            total_answers = len(answered_players)
+
+            correct_count = 0
+            time_sum = 0.0
+            time_count = 0
+            for p in answered_players:
+                ans = p.answers.get(qi)
+                if ans is None:
+                    ans = p.selections.get(qi)
+                tt = p.answer_times.get(qi, time_limit)
+                _, is_correct = _score_answer(q_type, scoring_correct_json, ans, tt, time_limit, base_points)
+                if is_correct:
+                    correct_count += 1
+                if qi in p.answer_times:
+                    time_sum += p.answer_times[qi]
+                    time_count += 1
+
+            avg_time = round(time_sum / time_count, 2) if time_count > 0 else 0.0
+
+            if q_type in ("mc", "tf", "poll"):
+                opts = q.get("options", [])
+                counts = [0] * max(len(opts), 1)
+                for p in session.players.values():
+                    ans = p.answers.get(qi)
+                    if isinstance(ans, int) and 0 <= ans < len(counts):
+                        counts[ans] += 1
+                answers_json = json.dumps(counts)
+            elif q_type == "ms":
+                opts = q.get("options", [])
+                counts = [0] * max(len(opts), 1)
+                for p in session.players.values():
+                    ans = p.answers.get(qi)
+                    if isinstance(ans, list):
+                        for idx in ans:
+                            if isinstance(idx, int) and 0 <= idx < len(counts):
+                                counts[idx] += 1
+                answers_json = json.dumps(counts)
+            elif q_type == "order":
+                submitted = sum(1 for p in session.players.values() if qi in p.answers)
+                answers_json = json.dumps([submitted])
+            elif q_type == "wordcloud":
+                freq: Dict[str, int] = {}
+                for word in session.wordcloud_answers.get(qi, {}).values():
+                    key = word.lower().strip()
+                    if key:
+                        freq[key] = freq.get(key, 0) + 1
+                answers_json = json.dumps(freq)
+            else:
+                answers_json = "[]"
+
+            question_stats.append({
+                "question_index": qi,
+                "question_text": q.get("text", ""),
+                "question_type": q_type,
+                "correct_count": correct_count,
+                "total_answers": total_answers,
+                "avg_time_seconds": avg_time,
+                "answers_json": answers_json,
+            })
+
+        return {
+            "leaderboard": session.get_leaderboard(),
+            "student_count": len(session.players),
+            "room_code": session.room_code,
+            "question_stats": question_stats,
+        }
+
+    async def handle_wordcloud_answer(
+        self,
+        room_code: str,
+        player_id: str,
+        question_id: int,
+        text: str,
+    ):
+        session = self.get_session(room_code)
+        if not session or session.state != "question":
+            return
+        if session.current_question_index != question_id:
+            return
+        player = session.players.get(player_id)
+        if not player or question_id in player.confirmed:
+            return
+
+        text = text.strip()[:50]
+        if not text:
+            return
+
+        session.wordcloud_answers.setdefault(question_id, {})[player_id] = text
+        player.answers[question_id] = text
+        player.confirmed.add(question_id)
+
+        if session.answer_phase_start_time:
+            elapsed = time.time() - session.answer_phase_start_time
+            player.answer_times[question_id] = max(0.0, elapsed)
+        else:
+            player.answer_times[question_id] = 0.0
+
+        word_list = list(session.wordcloud_answers[question_id].values())
+        await self._send_host(session, {
+            "type": "wordcloud_update",
+            "question_id": question_id,
+            "words": word_list,
+        })
+
+    async def broadcast_reaction(self, room_code: str, player_id: str, emoji: str):
+        session = self.get_session(room_code)
+        if not session:
+            return
+        player = session.players.get(player_id)
+        if not player:
+            return
+        await self._send_host(session, {
+            "type": "reaction",
+            "emoji": emoji,
+            "nickname": player.nickname,
+        })
 
     def cleanup_old_sessions(self):
         cutoff = datetime.utcnow() - timedelta(hours=2)

@@ -14,12 +14,14 @@
 
   <div class="dash-header">
     <h1>Your Quizzes</h1>
-    <span class="count">{{ quizzes|length }} saved</span>
+    <span class="count">{{ quiz_count }} saved</span>
   </div>
 
-  {% if quizzes %}
+  {% if quiz_groups %}
+  {% for group in quiz_groups %}
+  <h3 class="course-group-heading">{{ group.tag }}</h3>
   <div class="quiz-list">
-    {% for quiz in quizzes %}
+    {% for quiz in group.quizzes %}
     <div class="quiz-card">
       <div class="quiz-card-body">
         <span class="quiz-name">{{ quiz.name }}</span>
@@ -28,6 +30,9 @@
           <span class="tag">{{ quiz.course_tag }}</span>
           {% endif %}
           <span class="quiz-stat">{{ quiz.question_count }} question{{ 's' if quiz.question_count != 1 }}</span>
+          {% if quiz.play_count > 0 %}
+          <span class="quiz-stat text-muted">{{ quiz.play_count }} played</span>
+          {% endif %}
           {% if quiz.last_played %}
           <span class="quiz-stat text-muted">Last played {{ quiz.last_played.strftime('%b %d') }}</span>
           {% endif %}
@@ -35,12 +40,14 @@
       </div>
       <div class="quiz-card-actions">
         <a href="/admin/host/{{ quiz.id }}" class="btn btn-primary btn-sm">Host</a>
+        <a href="/admin/quiz/{{ quiz.id }}/history" class="btn btn-ghost btn-sm">Historial</a>
         <a href="/admin/quiz/{{ quiz.id }}/edit" class="btn btn-ghost btn-sm">Edit</a>
         <button class="btn btn-ghost btn-sm" onclick="deleteQuiz({{ quiz.id }}, '{{ quiz.name|replace("'", "\\'") }}')">Delete</button>
       </div>
     </div>
     {% endfor %}
   </div>
+  {% endfor %}
   {% else %}
   <div class="empty-state">
     <h2>No quizzes yet</h2>

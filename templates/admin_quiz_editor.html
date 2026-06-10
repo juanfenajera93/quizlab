@@ -106,7 +106,17 @@
       <label class="radio-btn">
         <input type="radio" name="q-type" value="order" onchange="onTypeChange()"> Orden
       </label>
+      <label class="radio-btn">
+        <input type="radio" name="q-type" value="wordcloud" onchange="onTypeChange()"> WCloud
+      </label>
     </div>
+  </div>
+
+  <!-- Wordcloud note (hidden for non-wordcloud types) -->
+  <div id="wordcloud-note" class="field" style="display:none">
+    <p style="margin:0;font-size:13px;color:var(--text-muted);font-style:italic;text-transform:none;letter-spacing:normal">
+      Los estudiantes escribirán texto libre. No hay opciones ni respuesta correcta.
+    </p>
   </div>
 
   <!-- Area 3D: Dynamic options list -->
@@ -141,11 +151,15 @@
 
   <div class="field">
     <label>Points</label>
-    <div class="radio-group">
+    <div class="radio-group" id="pts-radio-group">
       <label class="radio-btn"><input type="radio" name="q-pts" value="100" checked> 100</label>
       <label class="radio-btn"><input type="radio" name="q-pts" value="200"> 200</label>
       <label class="radio-btn"><input type="radio" name="q-pts" value="500"> 500</label>
     </div>
+    <label style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:normal;font-weight:400;color:var(--text-muted)">
+      <input type="checkbox" id="no-points-check" onchange="onNoPointsChange()">
+      Sin puntos (0 pts)
+    </label>
   </div>
 
   <div class="field">
@@ -305,7 +319,7 @@ function renderQuestions() {
     var pts = q.points || 100;
     var tl = q.time_limit || 20;
     var qType = q.question_type || 'mc';
-    var typeLabels = { mc: 'MC', tf: 'T/F', ms: 'Multi', poll: 'Poll', order: 'Orden' };
+    var typeLabels = { mc: 'MC', tf: 'T/F', ms: 'Multi', poll: 'Poll', order: 'Orden', wordcloud: 'WCloud' };
     var typeLabel = typeLabels[qType] || qType.toUpperCase();
 
     item.innerHTML =
@@ -545,9 +559,19 @@ function openForm(q, idx) {
   setTimeLimitUI(tl);
 
   // Points
-  var pts = q ? (q.points || 100) : 100;
-  var ptsRadio = document.querySelector('input[name="q-pts"][value="' + pts + '"]');
-  if (ptsRadio) ptsRadio.checked = true;
+  var pts = (q && q.points !== undefined && q.points !== null) ? q.points : 100;
+  var noPointsEl = document.getElementById('no-points-check');
+  var ptsGrp = document.getElementById('pts-radio-group');
+  var isNoPoints = pts === 0;
+  if (noPointsEl) noPointsEl.checked = isNoPoints;
+  if (ptsGrp) {
+    ptsGrp.style.opacity = isNoPoints ? '0.4' : '1';
+    ptsGrp.querySelectorAll('input[type="radio"]').forEach(function(r) { r.disabled = isNoPoints; });
+  }
+  if (!isNoPoints) {
+    var ptsRadio = document.querySelector('input[name="q-pts"][value="' + pts + '"]');
+    if (ptsRadio) ptsRadio.checked = true;
+  }
 
   // Image
   var imgUrl = q ? (q.image_url || '') : '';
@@ -562,9 +586,41 @@ function openForm(q, idx) {
   }
 }
 
+function onNoPointsChange() {
+  var checked = document.getElementById('no-points-check').checked;
+  var grp = document.getElementById('pts-radio-group');
+  if (!grp) return;
+  grp.style.opacity = checked ? '0.4' : '1';
+  grp.querySelectorAll('input[type="radio"]').forEach(function(r) { r.disabled = checked; });
+}
+
 function onTypeChange(type) {
   if (!type) type = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
   var isTF = type === 'tf';
+  var isWordcloud = type === 'wordcloud';
+
+  var optionsSection = document.getElementById('options-section');
+  var correctSection = document.getElementById('correct-section');
+  var wcNote = document.getElementById('wordcloud-note');
+  var noPointsEl = document.getElementById('no-points-check');
+  var ptsGrp = document.getElementById('pts-radio-group');
+
+  if (isWordcloud) {
+    if (optionsSection) optionsSection.style.display = 'none';
+    if (correctSection) correctSection.style.display = 'none';
+    if (wcNote) wcNote.style.display = '';
+    if (noPointsEl) { noPointsEl.checked = true; noPointsEl.disabled = true; }
+    if (ptsGrp) {
+      ptsGrp.style.opacity = '0.4';
+      ptsGrp.querySelectorAll('input[type="radio"]').forEach(function(r) { r.disabled = true; });
+    }
+    return;
+  }
+
+  // Restore no-points control for non-wordcloud types
+  if (noPointsEl) noPointsEl.disabled = false;
+  if (wcNote) wcNote.style.display = 'none';
+  if (optionsSection) optionsSection.style.display = '';
 
   if (isTF) {
     currentOptions = ['Verdadero', 'Falso'];
@@ -576,7 +632,6 @@ function onTypeChange(type) {
   renderOptions();
 
   // Show/hide correct section
-  var correctSection = document.getElementById('correct-section');
   if (type === 'poll') {
     correctSection.style.display = 'none';
   } else {
@@ -595,22 +650,23 @@ function saveQuestion() {
 
   var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
   var tl = getTimeLimit();
-  var pts = parseInt((document.querySelector('input[name="q-pts"]:checked') || {}).value || '100');
+  var noPointsChk = document.getElementById('no-points-check');
+  var pts = (noPointsChk && noPointsChk.checked) ? 0 : parseInt((document.querySelector('input[name="q-pts"]:checked') || {}).value || '100');
 
   // Validate options
   var opts = currentOptions.slice();
-  if (qType !== 'poll' && qType !== 'order') {
+  if (qType !== 'poll' && qType !== 'order' && qType !== 'wordcloud') {
     var filled = opts.filter(function(o) { return o.trim() !== ''; });
     if (filled.length < 2) { showToast('Options A and B are required', 'error'); return; }
   }
 
-  var correctJson = getCorrectJson();
+  var correctJson = (qType === 'wordcloud') ? '' : getCorrectJson();
   var imgUrl = document.getElementById('img-url-input').value.trim() || null;
 
   var q = {
     text: text,
     question_type: qType,
-    options: opts.filter(function(o) { return o.trim() !== ''; }),
+    options: (qType === 'wordcloud') ? [] : opts.filter(function(o) { return o.trim() !== ''; }),
     correct_json: correctJson,
     time_limit: tl,
     points: pts,

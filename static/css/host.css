@@ -653,3 +653,105 @@ body:has(.host-wrap) #theme-toggle {
 
 /* Read phase label — lime text on surface-2 (warm cream) */
 [data-theme="light"] .read-bar-label { color: var(--text); }
+
+/* ── Emoji reaction floaters ── */
+@keyframes float-up {
+  0%   { transform: translateY(0);      opacity: 1; }
+  80%  {                                opacity: 1; }
+  100% { transform: translateY(-140px); opacity: 0; }
+}
+
+.reaction-float {
+  position: fixed;
+  bottom: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  animation: float-up 2.5s ease-out forwards;
+  z-index: 1000;
+}
+
+.reaction-emoji {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.reaction-nick {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+/* ── Word cloud live feed & reveal ── */
+.word-feed {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+  max-height: 260px;
+  overflow-y: auto;
+  align-content: flex-start;
+}
+
+.word-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.wc-waiting {
+  color: var(--text-muted);
+  font-size: 15px;
+  font-style: italic;
+  padding: 24px 0;
+  text-align: center;
+  width: 100%;
+}
+
+.wordcloud-display {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.wc-reveal-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.wc-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+}
+
+.wc-word {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 1;
+  cursor: default;
+  transition: transform 0.15s ease;
+}
+
+.wc-word:hover { transform: scale(1.06); }

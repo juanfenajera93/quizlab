@@ -111,6 +111,10 @@
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
   }
 
+  window.sendReaction = function (emoji) {
+    send({ type: 'reaction', emoji: emoji });
+  };
+
   // ── Message handling ───────────────────────────────────────────
   function handleMessage(msg) {
     switch (msg.type) {
@@ -147,6 +151,8 @@
       document.getElementById('nickname-input').value.trim();
     showView('waiting-view');
     renderWaitingPlayers(msg.player_list || []);
+    var emojiBar = document.getElementById('emoji-bar');
+    if (emojiBar) emojiBar.style.display = 'flex';
   }
 
   function onPlayerUpdate(msg) {
@@ -296,6 +302,38 @@
       confirmBtn.textContent = 'Confirmar Orden';
       confirmBtn.addEventListener('click', confirmOrderAnswer);
       container.parentNode.insertBefore(confirmBtn, container.nextSibling);
+
+    } else if (qType === 'wordcloud') {
+      container.className = 'player-answers';
+      var wrapEl = document.createElement('div');
+      wrapEl.className = 'wc-input-area';
+      var inputEl = document.createElement('input');
+      inputEl.type = 'text';
+      inputEl.id = 'wc-input';
+      inputEl.className = 'wc-input';
+      inputEl.maxLength = 50;
+      inputEl.placeholder = 'Escribe tu respuesta...';
+      inputEl.autocomplete = 'off';
+      var charCount = document.createElement('div');
+      charCount.className = 'wc-char-count';
+      charCount.textContent = '0 / 50';
+      inputEl.addEventListener('input', function () {
+        charCount.textContent = inputEl.value.length + ' / 50';
+      });
+      inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); submitWordcloud(); }
+      });
+      wrapEl.appendChild(inputEl);
+      wrapEl.appendChild(charCount);
+      container.appendChild(wrapEl);
+      var wcBtn = document.createElement('button');
+      wcBtn.id = 'ms-confirm-btn';
+      wcBtn.className = 'ms-confirm-btn';
+      wcBtn.textContent = 'CONFIRMAR';
+      wcBtn.addEventListener('click', submitWordcloud);
+      container.parentNode.insertBefore(wcBtn, container.nextSibling);
+      // Focus the input after read phase
+      setTimeout(function () { if (inputEl) inputEl.focus(); }, 50);
 
     } else {
       // mc or poll: tap selects, confirm submits
@@ -486,6 +524,20 @@
     document.getElementById('answered-overlay').classList.add('show');
   }
 
+  function submitWordcloud() {
+    if (answered) return;
+    var inputEl = document.getElementById('wc-input');
+    if (!inputEl) return;
+    var text = inputEl.value.trim().slice(0, 50);
+    if (!text) return;
+    answered = true;
+    inputEl.disabled = true;
+    var btn = document.getElementById('ms-confirm-btn');
+    if (btn) btn.style.display = 'none';
+    send({ type: 'wordcloud_answer', question_id: currentQuestionId, text: text });
+    document.getElementById('answered-overlay').classList.add('show');
+  }
+
   function enterAnswerPhase(timeLimit) {
     var timerRing = document.querySelector('.player-timer-ring');
     if (timerRing) timerRing.style.visibility = 'visible';
@@ -515,7 +567,14 @@
     var totalEl = document.getElementById('reveal-total-score');
     var rankEl  = document.getElementById('rank-display');
 
-    if (qType === 'poll') {
+    if (qType === 'wordcloud') {
+      var yourText = msg.your_text || '';
+      if (iconEl) { iconEl.textContent = '☁'; iconEl.style.color = 'var(--violet)'; }
+      labelEl.textContent = yourText ? '¡Enviado!' : 'Sin respuesta';
+      labelEl.className = 'reveal-label ' + (yourText ? 'poll' : 'wrong');
+      popupEl.textContent = 'Sin puntos';
+      popupEl.className = 'score-popup wrong';
+    } else if (qType === 'poll') {
       // Poll: everyone who answered gets points
       if (iconEl) { iconEl.textContent = '✓'; iconEl.style.color = 'var(--lime)'; }
       labelEl.textContent = '¡Gracias!';
@@ -549,6 +608,11 @@
       popupEl.className = 'score-popup wrong';
     }
 
+    if (msg.no_points && qType !== 'wordcloud') {
+      popupEl.textContent = 'Sin puntos';
+      popupEl.className = 'score-popup wrong';
+    }
+
     if (totalEl) totalEl.textContent = 'Total: ' + totalScore + ' pts';
     if (rankEl)  rankEl.innerHTML = 'Estás <strong>#' + rank + '</strong> de ' + total + ' jugadores';
 
@@ -560,6 +624,8 @@
 
   function onGameEnd(msg) {
     clearTimer();
+    var emojiBar = document.getElementById('emoji-bar');
+    if (emojiBar) emojiBar.style.display = 'none';
     showFinal();
 
     var lb = msg.leaderboard || [];
@@ -657,6 +723,8 @@
   function onGameEnded(msg) {
     clearTimer();
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
+    var emojiBar = document.getElementById('emoji-bar');
+    if (emojiBar) emojiBar.style.display = 'none';
     var scoreEl = document.querySelector('#game-ended-view .game-ended-score');
     if (scoreEl) scoreEl.textContent = 'Tu puntuación final: ' + playerScore + ' pts';
     showGameEnded();
@@ -698,7 +766,18 @@
         timerInterval = null;
         updateTimerDisplay(0, limit);
         if (!answered) {
-          if (currentQuestionType === 'order') {
+          if (currentQuestionType === 'wordcloud') {
+            var wci = document.getElementById('wc-input');
+            var wct = wci ? wci.value.trim().slice(0, 50) : '';
+            if (wct) {
+              answered = true;
+              if (wci) wci.disabled = true;
+              send({ type: 'wordcloud_answer', question_id: currentQuestionId, text: wct });
+            }
+            document.getElementById('answered-overlay').classList.add('show');
+            var wcConfirm = document.getElementById('ms-confirm-btn');
+            if (wcConfirm) wcConfirm.style.display = 'none';
+          } else if (currentQuestionType === 'order') {
             answered = true;
             sendOrderUpdate();
             document.getElementById('answered-overlay').classList.add('show');
