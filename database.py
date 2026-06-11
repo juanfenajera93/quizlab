@@ -26,9 +26,9 @@ def create_db_and_tables():
     # Check if schema is new (has options_json column)
     q_cols = [c['name'] for c in inspector.get_columns('question')]
     if 'options_json' in q_cols:
-        # Schema is current, just ensure quiz table is up to date
-        SQLModel.metadata.create_all(engine)  # no-op for existing tables
-        _ensure_quiz_columns()
+        # Schema is current, just ensure existing tables have new columns
+        SQLModel.metadata.create_all(engine)  # creates any brand-new tables
+        _ensure_new_columns()
         return
 
     # Old schema detected — warn and try to proceed
@@ -39,16 +39,29 @@ def create_db_and_tables():
         print("Delete quizlab.db and restart to apply the new schema.", file=sys.stderr)
     print("All existing quizzes will need to be re-created.", file=sys.stderr)
     SQLModel.metadata.create_all(engine)
-    _ensure_quiz_columns()
+    _ensure_new_columns()
 
 
-def _ensure_quiz_columns():
-    with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE quiz ADD COLUMN read_time INTEGER DEFAULT 5"))
-            conn.commit()
-        except Exception:
-            pass  # column already exists
+# Columns added after the initial schema. Each ALTER is attempted and silently
+# skipped if the column already exists (works on both SQLite and Postgres).
+_COLUMN_MIGRATIONS = [
+    "ALTER TABLE quiz ADD COLUMN read_time INTEGER DEFAULT 5",
+    "ALTER TABLE quiz ADD COLUMN scoring_mode VARCHAR DEFAULT 'speed'",
+    "ALTER TABLE quiz ADD COLUMN streak_bonus BOOLEAN DEFAULT 0",
+    "ALTER TABLE quiz ADD COLUMN streak_bonus BOOLEAN DEFAULT FALSE",  # Postgres variant
+    "ALTER TABLE quizsession ADD COLUMN class_id INTEGER",
+    "ALTER TABLE sessionresult ADD COLUMN student_id INTEGER",
+]
+
+
+def _ensure_new_columns():
+    for stmt in _COLUMN_MIGRATIONS:
+        with engine.connect() as conn:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
 
 
 def get_session():

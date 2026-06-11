@@ -844,3 +844,134 @@ html, body {
   color: var(--text-muted);
   text-align: right;
 }
+
+/* ── Roster picker (class-attached rooms) ── */
+.roster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.roster-name-btn {
+  width: 100%;
+  text-align: left;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 13px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.roster-name-btn:hover,
+.roster-name-btn:active {
+  border-color: var(--lime);
+  background: rgba(185, 255, 102, 0.08);
+}
+
+/* ── Team badge (waiting room) ── */
+.team-badge {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 5px 14px;
+  border: 2px solid var(--lime);
+  border-radius: 999px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--lime);
+}
+
+/* ── Reveal feedback: full-screen flash + streak ── */
+@keyframes flashCorrect {
+  0% { background-color: rgba(6, 214, 160, 0.45); }
+  100% { background-color: var(--bg); }
+}
+
+@keyframes flashWrong {
+  0% { background-color: rgba(255, 75, 110, 0.45); }
+  100% { background-color: var(--bg); }
+}
+
+.reveal-view.flash-correct { animation: flashCorrect 0.9s ease-out; }
+.reveal-view.flash-wrong   { animation: flashWrong 0.9s ease-out; }
+
+@keyframes streakPop {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.streak-display {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fire);
+  margin-top: 4px;
+  animation: streakPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.team-rank-display {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.final-team {
+  margin-top: 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  text-transform: uppercase;
+  color: var(--violet);
+}
+
+/* ── Post-game review ── */
+.final-review {
+  width: 100%;
+  max-width: 480px;
+  margin-top: 24px;
+  text-align: left;
+}
+
+.final-review h3 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.review-item {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.review-item:last-child { border-bottom: none; }
+
+.review-q {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  line-height: 1.35;
+}
+
+.review-a {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.review-a strong { color: var(--text); font-weight: 600; }
+
+.review-mark.ok      { color: var(--answer-d); }
+.review-mark.bad     { color: var(--answer-a); }
+.review-mark.neutral { color: var(--text-muted); }

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Clases — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
+    </div>
+  </nav>
+
+  <div class="dash-header">
+    <h1>Clases</h1>
+    <span class="count">{{ classes|length }} clase{{ 's' if classes|length != 1 }}</span>
+  </div>
+
+  <form method="post" action="/admin/classes" style="display:flex;gap:12px;margin-bottom:32px;max-width:480px">
+    <input type="text" name="name" placeholder="Nombre de la clase (ej. 3°A Matemáticas)"
+           maxlength="60" required style="flex:1">
+    <button type="submit" class="btn btn-primary">+ Crear</button>
+  </form>
+
+  {% if classes %}
+  <div class="quiz-list">
+    {% for c in classes %}
+    <div class="quiz-card">
+      <div class="quiz-card-body">
+        <span class="quiz-name">{{ c.name }}</span>
+        <div class="quiz-meta">
+          <span class="quiz-stat">{{ c.student_count }} estudiante{{ 's' if c.student_count != 1 }}</span>
+          {% if c.session_count > 0 %}
+          <span class="quiz-stat text-muted">{{ c.session_count }} sesi{{ 'ones' if c.session_count != 1 else 'ón' }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="quiz-card-actions">
+        <a href="/admin/class/{{ c.id }}" class="btn btn-primary btn-sm">Abrir</a>
+        <form method="post" action="/admin/classes/{{ c.id }}/delete" style="display:inline"
+              onsubmit="return confirm('¿Eliminar la clase «{{ c.name }}» y su lista de estudiantes?')">
+          <button type="submit" class="btn btn-ghost btn-sm">Eliminar</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h2>Sin clases todavía</h2>
+    <p>Crea una clase y agrega tu lista de estudiantes para llevar su progreso entre sesiones.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

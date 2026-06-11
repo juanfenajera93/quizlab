@@ -7,8 +7,9 @@
   <nav class="admin-nav">
     <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
     <div class="nav-links">
-      <a href="/admin/quiz/new" class="btn btn-primary">+ New Quiz</a>
-      <a href="/admin/logout" class="btn btn-ghost btn-sm">Logout</a>
+      <a href="/admin/classes" class="btn btn-ghost btn-sm" data-i18n="nav_classes">Clases</a>
+      <a href="/admin/quiz/new" class="btn btn-primary" data-i18n="nav_new_quiz">+ New Quiz</a>
+      <a href="/admin/logout" class="btn btn-ghost btn-sm" data-i18n="nav_logout">Logout</a>
     </div>
   </nav>
 
@@ -40,8 +41,9 @@
       </div>
       <div class="quiz-card-actions">
         <a href="/admin/host/{{ quiz.id }}" class="btn btn-primary btn-sm">Host</a>
+        <a href="/admin/quiz/{{ quiz.id }}/assignments" class="btn btn-ghost btn-sm" data-i18n="nav_assignments">Tarea</a>
         <a href="/admin/quiz/{{ quiz.id }}/history" class="btn btn-ghost btn-sm">Historial</a>
-        <a href="/admin/quiz/{{ quiz.id }}/edit" class="btn btn-ghost btn-sm">Edit</a>
+        <a href="/admin/quiz/{{ quiz.id }}/edit" class="btn btn-ghost btn-sm" data-i18n="nav_edit">Edit</a>
         <button class="btn btn-ghost btn-sm" onclick="deleteQuiz({{ quiz.id }}, '{{ quiz.name|replace("'", "\\'") }}')">Delete</button>
       </div>
     </div>

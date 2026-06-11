@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Tareas — {{ quiz.name }} — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
+    </div>
+  </nav>
+
+  <div class="dash-header">
+    <div>
+      <h1>Tareas</h1>
+      <p style="margin:4px 0 0;color:var(--text-muted);font-size:14px;text-transform:none;letter-spacing:normal">
+        {{ quiz.name }} — los estudiantes responden a su propio ritmo, con puntuación por precisión
+      </p>
+    </div>
+  </div>
+
+  <form method="post" action="/admin/quiz/{{ quiz.id }}/assignments"
+        style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:32px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
+    <div class="field" style="margin:0">
+      <label>Fecha límite (opcional)</label>
+      <input type="datetime-local" name="deadline">
+    </div>
+    <div class="field" style="margin:0">
+      <label>Clase (opcional)</label>
+      <select name="class_id" style="min-width:180px">
+        <option value="">Abierta — cualquier nombre</option>
+        {% for c in classes %}
+        <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary">+ Crear tarea</button>
+  </form>
+
+  {% if assignments %}
+  <div style="overflow-x:auto">
+    <table class="stat-table">
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Enlace</th>
+          <th>Clase</th>
+          <th>Fecha límite</th>
+          <th style="text-align:right">Entregas</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assignments %}
+        <tr>
+          <td style="font-family:'Syne Mono',monospace;font-size:15px">{{ a.code }}
+            {% if a.closed %}<span class="badge" style="margin-left:6px">CERRADA</span>{% endif %}
+          </td>
+          <td>
+            <button class="btn btn-ghost btn-sm" onclick="copyLink('{{ a.code }}', this)">Copiar enlace</button>
+          </td>
+          <td>{{ a.class_name or '—' }}</td>
+          <td>{{ a.deadline.strftime('%d %b %Y %H:%M') if a.deadline else 'Sin límite' }}</td>
+          <td style="text-align:right">{{ a.submissions }}</td>
+          <td style="text-align:right">
+            <a href="/admin/assignment/{{ a.id }}" class="btn btn-ghost btn-sm">Resultados</a>
+            <form method="post" action="/admin/assignment/{{ a.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('¿Eliminar esta tarea y sus entregas?')">
+              <button type="submit" class="btn btn-ghost btn-sm">✕</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted)">Sin tareas todavía. Crea una y comparte el enlace con tus estudiantes.</p>
+  {% endif %}
+</div>
+
+<style>
+.stat-table { width:100%; border-collapse:collapse; font-size:14px; }
+.stat-table th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border);
+  font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:700;
+  text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); }
+.stat-table td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.stat-table tr:hover td { background:var(--surface-2); }
+</style>
+<script>
+function copyLink(code, btn) {
+  var url = location.origin + '/assignment/' + code;
+  navigator.clipboard.writeText(url).then(function () {
+    var orig = btn.textContent;
+    btn.textContent = '¡Copiado!';
+    setTimeout(function () { btn.textContent = orig; }, 1500);
+  });
+}
+</script>
+{% endblock %}

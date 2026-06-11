@@ -12,14 +12,14 @@
   <div id="join-view" class="pview active" style="flex-direction:column">
     <div class="join-header">
       <a href="/" class="logo">Quiz<span>Lab</span></a>
-      <p>Ingresa el código de sala y tu apodo</p>
+      <p data-i18n="join_title">Ingresa el código de sala y tu apodo</p>
     </div>
 
     <div class="join-form">
       <div id="join-error" class="error-banner"></div>
 
       <div class="field">
-        <label for="room-input">Código de Sala</label>
+        <label for="room-input" data-i18n="room_code_label">Código de Sala</label>
         <div class="room-input-row">
           <input type="text" id="room-input"
                  value="{{ room_code }}"
@@ -33,36 +33,44 @@
         </div>
       </div>
 
-      <div class="field">
-        <label for="nickname-input">Apodo</label>
+      <div class="field" id="nickname-field">
+        <label for="nickname-input" data-i18n="nickname_label">Apodo</label>
         <input type="text" id="nickname-input"
                placeholder="Tu nombre"
+               data-i18n-placeholder="nickname_placeholder"
                maxlength="20"
                autocomplete="off"
                autocapitalize="words">
       </div>
 
-      <button class="btn btn-primary join-btn" onclick="joinGame()">Unirse →</button>
+      <!-- Roster picker: replaces the nickname input when the room has a class attached -->
+      <div class="field" id="roster-field" style="display:none">
+        <label data-i18n="pick_your_name">Selecciona tu nombre</label>
+        <div id="roster-list" class="roster-list"></div>
+      </div>
+
+      <button class="btn btn-primary join-btn" id="join-btn" onclick="joinGame()" data-i18n="join_btn">Unirse →</button>
     </div>
   </div>
 
   <!-- ── WAITING ROOM ── -->
   <div id="waiting-view" class="pview" style="flex-direction:column">
     <div class="waiting-header">
-      <h1>¡Estás dentro!</h1>
+      <h1 data-i18n="youre_in">¡Estás dentro!</h1>
       <div class="nickname-display" id="my-nickname"></div>
       <div class="room-code-pill" id="waiting-room-code"></div>
+      <div class="team-badge" id="team-badge" style="display:none"></div>
     </div>
 
     <div class="waiting-pulse">
       <div class="dot-pulse">
         <span></span><span></span><span></span>
       </div>
-      <span id="waiting-pulse-text">Esperando que el profesor inicie...</span>
+      <span id="waiting-pulse-text" data-i18n="waiting_start">Esperando que el profesor inicie...</span>
     </div>
 
     <div class="waiting-players">
-      <h3>Jugadores (<span id="waiting-player-count">0</span>)</h3>
+      <h3><span data-i18n="players">Jugadores</span> (<span id="waiting-player-count">0</span>)</h3>
       <div class="waiting-player-list" id="waiting-player-list"></div>
     </div>
   </div>
@@ -112,13 +120,15 @@
   <div id="reveal-icon" class="reveal-icon">✓</div>
   <div id="reveal-result-label" class="reveal-label correct">¡Correcto!</div>
   <div id="score-popup" class="score-popup">+0 pts</div>
+  <div id="streak-display" class="streak-display" style="display:none"></div>
   <div id="reveal-total-score" class="reveal-total-score">Total: 0 pts</div>
   <div id="rank-display" class="rank-display"></div>
+  <div id="team-rank-display" class="team-rank-display" style="display:none"></div>
   <div class="reveal-waiting">
     <div class="dot-pulse">
       <span></span><span></span><span></span>
     </div>
-    <span>Esperando la siguiente pregunta...</span>
+    <span data-i18n="waiting_next">Esperando la siguiente pregunta...</span>
   </div>
 </div>
 
@@ -127,13 +137,13 @@
   <div class="dot-pulse">
     <span></span><span></span><span></span>
   </div>
-  Reconectando...
+  <span data-i18n="reconnecting">Reconectando...</span>
 </div>
 
 <!-- Game ended by professor -->
 <div id="game-ended-view" class="game-ended-view">
-  <div class="game-ended-title">EL QUIZ HA TERMINADO</div>
-  <div class="game-ended-sub">El profesor ha detenido la sesión.</div>
+  <div class="game-ended-title" data-i18n="quiz_ended_title">EL QUIZ HA TERMINADO</div>
+  <div class="game-ended-sub" data-i18n="quiz_ended_sub">El profesor ha detenido la sesión.</div>
   <div class="game-ended-score">Tu puntuación final: 0 pts</div>
 </div>
 
@@ -142,18 +152,24 @@
   <div class="final-emoji">🎉</div>
   <h1 class="final-title">¡Juego<br>terminado!</h1>
   <div class="final-rank-num" id="final-rank-num">#—</div>
-  <div class="final-rank-label">Tu posición</div>
+  <div class="final-rank-label" data-i18n="your_position">Tu posición</div>
   <div class="final-score" id="final-total-score">0 pts</div>
+  <div class="final-team" id="final-team" style="display:none"></div>
 
   <div class="final-mini-lb">
-    <h3>Top jugadores</h3>
+    <h3 data-i18n="top_players">Top jugadores</h3>
     <div class="final-mini-lb-scroll">
       <div id="final-mini-lb-list"></div>
     </div>
   </div>
 
+  <div class="final-review" id="final-review" style="display:none">
+    <h3 data-i18n="your_review">Tu repaso</h3>
+    <div id="final-review-list"></div>
+  </div>
+
   <div class="final-play-again">
-    <a href="/play" class="btn btn-ghost">Jugar de nuevo</a>
+    <a href="/play" class="btn btn-ghost" data-i18n="play_again">Jugar de nuevo</a>
   </div>
 </div>
 <div id="emoji-bar" class="emoji-bar" style="display:none">

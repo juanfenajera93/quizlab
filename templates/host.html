@@ -29,17 +29,38 @@
 
       <div class="lobby-players-panel">
         <div class="players-header">
-          <h2>Players</h2>
+          <h2 data-i18n="players">Players</h2>
           <span class="player-count-badge" id="player-count-badge">0</span>
         </div>
+
+        <!-- Session settings: class roster, team mode, room lock -->
+        <div class="lobby-settings">
+          <div class="lobby-setting">
+            <label data-i18n="class_label">Clase</label>
+            <select id="class-select" onchange="hostSetClass()">
+              <option value="" data-i18n="class_open">Abierta (cualquier nombre)</option>
+            </select>
+          </div>
+          <div class="lobby-setting">
+            <label data-i18n="team_mode">Equipos</label>
+            <select id="team-select" onchange="hostSetTeams()">
+              <option value="0" data-i18n="team_off">Individual</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="lock-btn" onclick="hostToggleLock()">🔓</button>
+        </div>
+
         <div class="player-chips" id="player-chips">
-          <span style="color:var(--text-muted);font-size:14px">Waiting for players to join...</span>
+          <span style="color:var(--text-muted);font-size:14px" data-i18n="waiting_players">Waiting for players to join...</span>
         </div>
         <div class="lobby-actions">
-          <button class="btn btn-primary btn-lg" id="start-btn" onclick="hostStartGame()" disabled>
+          <button class="btn btn-primary btn-lg" id="start-btn" onclick="hostStartGame()" disabled data-i18n="start_game">
             Start Game
           </button>
-          <span class="start-hint" id="start-hint">Waiting for players...</span>
+          <span class="start-hint" id="start-hint" data-i18n="waiting_players">Waiting for players...</span>
         </div>
       </div>
     </div>
@@ -62,16 +83,19 @@
       </div>
 
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-ghost btn-sm" onclick="hostStopQuiz()" style="color:var(--text-muted)">■ Detener Quiz</button>
+        <button class="btn btn-ghost btn-sm" id="sound-btn" onclick="hostToggleSound()" title="Sonido">🔇</button>
+        <button class="btn btn-ghost btn-sm" id="projector-btn" onclick="hostToggleProjector()" title="Modo proyector">📽</button>
         <div style="width:1px;height:20px;background:var(--border)"></div>
-        <button id="reveal-btn" class="btn btn-ghost btn-sm hidden" onclick="hostReveal()">Reveal Now</button>
-        <button id="next-btn" class="btn btn-primary btn-sm hidden" onclick="hostNext()">Next →</button>
+        <button class="btn btn-ghost btn-sm" onclick="hostStopQuiz()" style="color:var(--text-muted)" data-i18n="stop_quiz">■ Detener Quiz</button>
+        <div style="width:1px;height:20px;background:var(--border)"></div>
+        <button id="reveal-btn" class="btn btn-ghost btn-sm hidden" onclick="hostReveal()" data-i18n="reveal_now">Reveal Now</button>
+        <button id="next-btn" class="btn btn-primary btn-sm hidden" onclick="hostNext()" data-i18n="next">Next →</button>
       </div>
     </header>
 
     <!-- Fix 5: Read phase bar (shown during read phase, hidden during answer phase) -->
     <div id="read-phase-bar" class="read-phase-bar">
-      <span class="read-bar-label">Lee la pregunta</span>
+      <span class="read-bar-label" data-i18n="read_the_question">Lee la pregunta</span>
       <div class="read-bar-track">
         <div id="read-bar-fill" class="read-bar-fill"></div>
       </div>
@@ -116,7 +140,11 @@
         <div id="word-feed" class="word-feed" style="display:none"></div>
 
         <div id="reveal-panel" class="reveal-leaderboard hidden">
-          <div class="reveal-lb-title">Top Players</div>
+          <div id="team-standings" class="team-standings" style="display:none">
+            <div class="reveal-lb-title" data-i18n="teams">Equipos</div>
+            <div id="team-standings-list"></div>
+          </div>
+          <div class="reveal-lb-title" data-i18n="top_5">Top Players</div>
           <div id="reveal-lb-list"></div>
         </div>
       </div>
@@ -129,6 +157,7 @@
       <div class="final-header">
         <h1>Game<br><span>Over!</span></h1>
       </div>
+      <div class="team-final" id="team-final" style="display:none"></div>
       <div class="podium-row" id="podium-row"></div>
       <div class="final-lb" id="final-lb-list"></div>
       <div style="margin-top:32px">

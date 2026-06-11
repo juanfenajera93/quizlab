@@ -34,8 +34,18 @@ from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
 from database import create_db_and_tables, engine, get_session, _is_postgres
-from game_manager import game_manager
-from models import Question, Quiz, QuizSession, SessionResult, QuestionStat
+from game_manager import TEAM_NAMES, game_manager, is_nickname_allowed, _score_answer
+from models import (
+    Assignment,
+    AssignmentResult,
+    ClassGroup,
+    Question,
+    Quiz,
+    QuizSession,
+    SessionResult,
+    QuestionStat,
+    Student,
+)
 
 load_dotenv()
 
@@ -98,6 +108,7 @@ async def _persist_session(room_code: str):
                 quiz_id=quiz_id,
                 room_code=data["room_code"],
                 student_count=data["student_count"],
+                class_id=data.get("class_id"),
             )
             db.add(qs)
             db.commit()
@@ -108,6 +119,7 @@ async def _persist_session(room_code: str):
                     nickname=entry["nickname"],
                     score=entry["score"],
                     rank=entry["rank"],
+                    student_id=entry.get("student_id"),
                 ))
             db.commit()
             for stat in data["question_stats"]:
@@ -274,6 +286,11 @@ async def save_quiz(request: Request, db: Session = Depends(get_session)):
     read_time = int(data.get("read_time", 5))
     read_time = max(0, min(60, read_time))
 
+    scoring_mode = data.get("scoring_mode", "speed")
+    if scoring_mode not in ("speed", "accuracy"):
+        scoring_mode = "speed"
+    streak_bonus = bool(data.get("streak_bonus", False))
+
     if quiz_id:
         quiz = db.get(Quiz, int(quiz_id))
         if not quiz:
@@ -281,11 +298,14 @@ async def save_quiz(request: Request, db: Session = Depends(get_session)):
         quiz.name = name
         quiz.course_tag = course_tag
         quiz.read_time = read_time
+        quiz.scoring_mode = scoring_mode
+        quiz.streak_bonus = streak_bonus
         for q in db.exec(select(Question).where(Question.quiz_id == quiz.id)).all():
             db.delete(q)
         db.commit()
     else:
-        quiz = Quiz(name=name, course_tag=course_tag, read_time=read_time)
+        quiz = Quiz(name=name, course_tag=course_tag, read_time=read_time,
+                    scoring_mode=scoring_mode, streak_bonus=streak_bonus)
         db.add(quiz)
         db.commit()
         db.refresh(quiz)
@@ -411,6 +431,527 @@ async def session_detail(
             "stats": stats_data,
         },
     )
+
+
+# ─── Classes & students ──────────────────────────────────────────────────────
+
+@app.get("/admin/classes", response_class=HTMLResponse)
+async def classes_page(request: Request, db: Session = Depends(get_session)):
+    if not request.session.get("admin"):
+        return RedirectResponse("/admin/login")
+    classes = db.exec(select(ClassGroup).order_by(ClassGroup.name)).all()
+    classes_data = []
+    for cg in classes:
+        students = db.exec(select(Student).where(Student.class_id == cg.id)).all()
+        sessions = db.exec(select(QuizSession).where(QuizSession.class_id == cg.id)).all()
+        classes_data.append({
+            "id": cg.id, "name": cg.name,
+            "student_count": len(students),
+            "session_count": len(sessions),
+        })
+    return templates.TemplateResponse(
+        "admin_classes.html", {"request": request, "classes": classes_data}
+    )
+
+
+@app.post("/admin/classes")
+async def create_class(request: Request, name: str = Form(...),
+                       db: Session = Depends(get_session)):
+    _require_admin(request)
+    name = name.strip()
+    if name:
+        db.add(ClassGroup(name=name))
+        db.commit()
+    return RedirectResponse("/admin/classes", status_code=303)
+
+
+@app.post("/admin/classes/{class_id}/delete")
+async def delete_class(request: Request, class_id: int,
+                       db: Session = Depends(get_session)):
+    _require_admin(request)
+    cg = db.get(ClassGroup, class_id)
+    if cg:
+        for s in db.exec(select(Student).where(Student.class_id == class_id)).all():
+            db.delete(s)
+        for qs in db.exec(select(QuizSession).where(QuizSession.class_id == class_id)).all():
+            qs.class_id = None
+            db.add(qs)
+        db.delete(cg)
+        db.commit()
+    return RedirectResponse("/admin/classes", status_code=303)
+
+
+@app.get("/admin/class/{class_id}", response_class=HTMLResponse)
+async def class_detail(request: Request, class_id: int,
+                       db: Session = Depends(get_session)):
+    if not request.session.get("admin"):
+        return RedirectResponse("/admin/login")
+    cg = db.get(ClassGroup, class_id)
+    if not cg:
+        raise HTTPException(status_code=404)
+    students = db.exec(
+        select(Student).where(Student.class_id == class_id).order_by(Student.name)
+    ).all()
+    students_data = []
+    for s in students:
+        results = db.exec(
+            select(SessionResult).where(SessionResult.student_id == s.id)
+        ).all()
+        scores = [r.score for r in results]
+        students_data.append({
+            "id": s.id, "name": s.name,
+            "sessions_played": len(results),
+            "avg_score": round(sum(scores) / len(scores)) if scores else None,
+            "best_score": max(scores) if scores else None,
+        })
+    return templates.TemplateResponse(
+        "admin_class_detail.html",
+        {"request": request, "class_group": cg, "students": students_data},
+    )
+
+
+@app.post("/admin/class/{class_id}/students")
+async def add_students(request: Request, class_id: int, names: str = Form(...),
+                       db: Session = Depends(get_session)):
+    _require_admin(request)
+    cg = db.get(ClassGroup, class_id)
+    if not cg:
+        raise HTTPException(status_code=404)
+    existing = {
+        s.name.lower()
+        for s in db.exec(select(Student).where(Student.class_id == class_id)).all()
+    }
+    for line in names.splitlines():
+        name = line.strip()[:40]
+        if name and name.lower() not in existing:
+            db.add(Student(class_id=class_id, name=name))
+            existing.add(name.lower())
+    db.commit()
+    return RedirectResponse(f"/admin/class/{class_id}", status_code=303)
+
+
+@app.post("/admin/student/{student_id}/delete")
+async def delete_student(request: Request, student_id: int,
+                         db: Session = Depends(get_session)):
+    _require_admin(request)
+    s = db.get(Student, student_id)
+    class_id = s.class_id if s else None
+    if s:
+        db.delete(s)
+        db.commit()
+    return RedirectResponse(f"/admin/class/{class_id}" if class_id else "/admin/classes",
+                            status_code=303)
+
+
+@app.get("/admin/student/{student_id}", response_class=HTMLResponse)
+async def student_progress(request: Request, student_id: int,
+                           db: Session = Depends(get_session)):
+    if not request.session.get("admin"):
+        return RedirectResponse("/admin/login")
+    student = db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404)
+    cg = db.get(ClassGroup, student.class_id)
+    results = db.exec(
+        select(SessionResult).where(SessionResult.student_id == student_id)
+    ).all()
+    history = []
+    for r in results:
+        qs = db.get(QuizSession, r.session_id)
+        if not qs:
+            continue
+        quiz = db.get(Quiz, qs.quiz_id)
+        history.append({
+            "played_at": qs.played_at,
+            "quiz_name": quiz.name if quiz else "—",
+            "score": r.score,
+            "rank": r.rank,
+            "student_count": qs.student_count,
+            "session_id": qs.id,
+        })
+    history.sort(key=lambda h: h["played_at"])
+    scores = [h["score"] for h in history]
+    max_score = max(scores) if scores else 1
+    for h in history:
+        h["bar_pct"] = round(h["score"] / max_score * 100) if max_score > 0 else 0
+    summary = {
+        "sessions": len(history),
+        "avg_score": round(sum(scores) / len(scores)) if scores else 0,
+        "best_score": max(scores) if scores else 0,
+        "avg_rank": round(sum(h["rank"] for h in history) / len(history), 1) if history else 0,
+    }
+    return templates.TemplateResponse(
+        "admin_student.html",
+        {"request": request, "student": student, "class_group": cg,
+         "history": history, "summary": summary},
+    )
+
+
+@app.get("/admin/api/classes")
+async def api_classes(request: Request, db: Session = Depends(get_session)):
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=401)
+    classes = db.exec(select(ClassGroup).order_by(ClassGroup.name)).all()
+    return JSONResponse([
+        {
+            "id": cg.id,
+            "name": cg.name,
+            "student_count": len(db.exec(
+                select(Student).where(Student.class_id == cg.id)).all()),
+        }
+        for cg in classes
+    ])
+
+
+# ─── CSV export ──────────────────────────────────────────────────────────────
+
+@app.get("/admin/session/{session_id}/export.csv")
+async def export_session_csv(request: Request, session_id: int,
+                             db: Session = Depends(get_session)):
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=401)
+    qs = db.get(QuizSession, session_id)
+    if not qs:
+        raise HTTPException(status_code=404)
+    quiz = db.get(Quiz, qs.quiz_id)
+    results = db.exec(
+        select(SessionResult).where(SessionResult.session_id == session_id)
+        .order_by(SessionResult.rank)
+    ).all()
+    stats = db.exec(
+        select(QuestionStat).where(QuestionStat.session_id == session_id)
+        .order_by(QuestionStat.question_index)
+    ).all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Quiz", quiz.name if quiz else "", "Sala", qs.room_code,
+                     "Fecha", qs.played_at.strftime("%Y-%m-%d %H:%M")])
+    writer.writerow([])
+    writer.writerow(["rank", "nombre", "puntos"])
+    for r in results:
+        writer.writerow([r.rank, r.nickname, r.score])
+    writer.writerow([])
+    writer.writerow(["pregunta", "tipo", "respondieron", "correctos",
+                     "pct_correcto", "tiempo_promedio_s"])
+    for s in stats:
+        pct = round(s.correct_count / s.total_answers * 100) if s.total_answers else ""
+        writer.writerow([s.question_text, s.question_type, s.total_answers,
+                         s.correct_count, pct, s.avg_time_seconds])
+    filename = f"quizlab_sesion_{session_id}.csv"
+    return Response(
+        content="\ufeff" + buf.getvalue(),  # BOM so Excel opens UTF-8 correctly
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ─── Assignments (async / homework mode) ─────────────────────────────────────
+
+def _generate_assignment_code(db: Session) -> str:
+    import random as _random
+    import string as _string
+    while True:
+        code = "".join(_random.choices(_string.ascii_uppercase + _string.digits, k=8))
+        if not db.exec(select(Assignment).where(Assignment.code == code)).first():
+            return code
+
+
+@app.get("/admin/quiz/{quiz_id}/assignments", response_class=HTMLResponse)
+async def quiz_assignments(request: Request, quiz_id: int,
+                           db: Session = Depends(get_session)):
+    if not request.session.get("admin"):
+        return RedirectResponse("/admin/login")
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404)
+    assignments = db.exec(
+        select(Assignment).where(Assignment.quiz_id == quiz_id)
+        .order_by(Assignment.created_at.desc())
+    ).all()
+    rows = []
+    for a in assignments:
+        subs = db.exec(select(AssignmentResult)
+                       .where(AssignmentResult.assignment_id == a.id)).all()
+        cg = db.get(ClassGroup, a.class_id) if a.class_id else None
+        rows.append({
+            "id": a.id, "code": a.code, "deadline": a.deadline,
+            "created_at": a.created_at,
+            "class_name": cg.name if cg else None,
+            "submissions": len(subs),
+            "closed": bool(a.deadline and a.deadline < datetime.utcnow()),
+        })
+    classes = db.exec(select(ClassGroup).order_by(ClassGroup.name)).all()
+    return templates.TemplateResponse(
+        "admin_assignments.html",
+        {"request": request, "quiz": quiz, "assignments": rows, "classes": classes},
+    )
+
+
+@app.post("/admin/quiz/{quiz_id}/assignments")
+async def create_assignment(request: Request, quiz_id: int,
+                            deadline: str = Form(""),
+                            class_id: str = Form(""),
+                            db: Session = Depends(get_session)):
+    _require_admin(request)
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404)
+    dl = None
+    if deadline.strip():
+        try:
+            dl = datetime.fromisoformat(deadline.strip())
+        except ValueError:
+            dl = None
+    cid = int(class_id) if class_id.strip().isdigit() else None
+    a = Assignment(quiz_id=quiz_id, class_id=cid, deadline=dl,
+                   code=_generate_assignment_code(db))
+    db.add(a)
+    db.commit()
+    logger.info("assignment %s created (quiz_id=%s, class_id=%s, deadline=%s)",
+                a.code, quiz_id, cid, dl)
+    return RedirectResponse(f"/admin/quiz/{quiz_id}/assignments", status_code=303)
+
+
+@app.post("/admin/assignment/{assignment_id}/delete")
+async def delete_assignment(request: Request, assignment_id: int,
+                            db: Session = Depends(get_session)):
+    _require_admin(request)
+    a = db.get(Assignment, assignment_id)
+    quiz_id = a.quiz_id if a else None
+    if a:
+        for r in db.exec(select(AssignmentResult)
+                         .where(AssignmentResult.assignment_id == assignment_id)).all():
+            db.delete(r)
+        db.delete(a)
+        db.commit()
+    return RedirectResponse(
+        f"/admin/quiz/{quiz_id}/assignments" if quiz_id else "/admin/dashboard",
+        status_code=303)
+
+
+@app.get("/admin/assignment/{assignment_id}", response_class=HTMLResponse)
+async def assignment_detail(request: Request, assignment_id: int,
+                            db: Session = Depends(get_session)):
+    if not request.session.get("admin"):
+        return RedirectResponse("/admin/login")
+    a = db.get(Assignment, assignment_id)
+    if not a:
+        raise HTTPException(status_code=404)
+    quiz = db.get(Quiz, a.quiz_id)
+    cg = db.get(ClassGroup, a.class_id) if a.class_id else None
+    subs = db.exec(
+        select(AssignmentResult).where(AssignmentResult.assignment_id == assignment_id)
+        .order_by(AssignmentResult.score.desc())
+    ).all()
+    return templates.TemplateResponse(
+        "admin_assignment_detail.html",
+        {"request": request, "assignment": a, "quiz": quiz, "class_group": cg,
+         "submissions": subs,
+         "closed": bool(a.deadline and a.deadline < datetime.utcnow())},
+    )
+
+
+@app.get("/assignment/{code}", response_class=HTMLResponse)
+async def assignment_page(request: Request, code: str):
+    return templates.TemplateResponse(
+        "assignment.html", {"request": request, "code": code.upper()}
+    )
+
+
+def _get_open_assignment(code: str, db: Session):
+    a = db.exec(select(Assignment).where(Assignment.code == code.upper())).first()
+    if not a:
+        return None, "not_found"
+    if a.deadline and a.deadline < datetime.utcnow():
+        return a, "closed"
+    return a, None
+
+
+@app.get("/api/assignment/{code}")
+async def api_assignment_info(code: str, db: Session = Depends(get_session)):
+    a, err = _get_open_assignment(code, db)
+    if err == "not_found":
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    quiz = db.get(Quiz, a.quiz_id)
+    questions = db.exec(
+        select(Question).where(Question.quiz_id == a.quiz_id)).all()
+    submitted = {
+        r.nickname.lower()
+        for r in db.exec(select(AssignmentResult)
+                         .where(AssignmentResult.assignment_id == a.id)).all()
+    }
+    roster_names = None
+    if a.class_id:
+        roster_names = [
+            s.name for s in db.exec(
+                select(Student).where(Student.class_id == a.class_id)).all()
+            if s.name.lower() not in submitted
+        ]
+    return JSONResponse({
+        "ok": True,
+        "quiz_name": quiz.name if quiz else "",
+        "question_count": len(questions),
+        "deadline": a.deadline.isoformat() if a.deadline else None,
+        "closed": err == "closed",
+        "has_roster": a.class_id is not None,
+        "roster_names": roster_names,
+    })
+
+
+@app.get("/api/assignment/{code}/questions")
+async def api_assignment_questions(code: str, db: Session = Depends(get_session)):
+    a, err = _get_open_assignment(code, db)
+    if err:
+        return JSONResponse({"ok": False, "error": err},
+                            status_code=404 if err == "not_found" else 403)
+    questions = db.exec(
+        select(Question).where(Question.quiz_id == a.quiz_id)
+        .order_by(Question.position)
+    ).all()
+    return JSONResponse({
+        "ok": True,
+        "questions": [
+            {
+                "index": i,
+                "text": q.text,
+                "question_type": q.question_type,
+                "options": json.loads(q.options_json) if q.options_json else [],
+                "image_url": q.image_url or "",
+                "points": q.points,
+            }
+            for i, q in enumerate(questions)
+        ],
+    })
+
+
+@app.post("/api/assignment/{code}/submit")
+async def api_assignment_submit(code: str, request: Request,
+                                db: Session = Depends(get_session)):
+    a, err = _get_open_assignment(code, db)
+    if err:
+        return JSONResponse({"ok": False, "error": err},
+                            status_code=404 if err == "not_found" else 403)
+    data = await request.json()
+    nickname = str(data.get("nickname", "")).strip()[:40]
+    answers = data.get("answers", [])
+    if not nickname:
+        return JSONResponse({"ok": False, "error": "nickname_required"}, status_code=400)
+    if not is_nickname_allowed(nickname):
+        return JSONResponse({"ok": False, "error": "nickname_not_allowed"}, status_code=400)
+
+    student_id = None
+    if a.class_id:
+        student = next(
+            (s for s in db.exec(
+                select(Student).where(Student.class_id == a.class_id)).all()
+             if s.name.lower() == nickname.lower()),
+            None,
+        )
+        if not student:
+            return JSONResponse({"ok": False, "error": "pick_from_roster"}, status_code=400)
+        student_id = student.id
+
+    already = next(
+        (r for r in db.exec(select(AssignmentResult)
+                            .where(AssignmentResult.assignment_id == a.id)).all()
+         if r.nickname.lower() == nickname.lower()),
+        None,
+    )
+    if already:
+        return JSONResponse({"ok": False, "error": "already_submitted"}, status_code=409)
+
+    questions = db.exec(
+        select(Question).where(Question.quiz_id == a.quiz_id)
+        .order_by(Question.position)
+    ).all()
+
+    # Homework is self-paced: accuracy scoring, no speed pressure
+    score = 0
+    correct_count = 0
+    review = []
+    for i, q in enumerate(questions):
+        ans = answers[i] if i < len(answers) else None
+        options = json.loads(q.options_json) if q.options_json else []
+        if q.question_type == "order":
+            # Client submits original-array indices in chosen order;
+            # the correct ordering is simply 0..n-1
+            correct_json = json.dumps(list(range(len(options))))
+        else:
+            correct_json = q.correct_json
+        pts, is_correct = _score_answer(
+            q.question_type, correct_json,
+            ans if ans is not None else -1,
+            0.0, q.time_limit, q.points, "accuracy")
+        score += pts
+        scored = q.question_type not in ("poll", "wordcloud")
+        if is_correct and scored:
+            correct_count += 1
+
+        your_display = "—"
+        correct_display = ""
+        if q.question_type in ("mc", "tf", "poll"):
+            if isinstance(ans, int) and 0 <= ans < len(options):
+                your_display = str(options[ans])
+            if q.question_type != "poll":
+                try:
+                    ci = int(q.correct_json) if q.correct_json != "" else 0
+                except (ValueError, TypeError):
+                    ci = 0
+                if 0 <= ci < len(options):
+                    correct_display = str(options[ci])
+        elif q.question_type == "ms":
+            if isinstance(ans, list):
+                your_display = ", ".join(
+                    str(options[j]) for j in ans
+                    if isinstance(j, int) and 0 <= j < len(options)) or "—"
+            try:
+                correct_display = ", ".join(
+                    str(options[j]) for j in json.loads(q.correct_json)
+                    if isinstance(j, int) and 0 <= j < len(options))
+            except Exception:
+                correct_display = ""
+        elif q.question_type == "order":
+            if isinstance(ans, list):
+                your_display = " → ".join(
+                    str(options[j]) for j in ans
+                    if isinstance(j, int) and 0 <= j < len(options)) or "—"
+            correct_display = " → ".join(str(o) for o in options)
+        elif q.question_type == "wordcloud":
+            if isinstance(ans, str) and ans.strip():
+                your_display = ans.strip()[:50]
+
+        review.append({
+            "index": i,
+            "text": q.text,
+            "question_type": q.question_type,
+            "your_answer": your_display,
+            "correct_answer": correct_display,
+            "answered": ans is not None and ans != -1 and ans != "",
+            "correct": is_correct,
+            "points": pts,
+            "scored": scored,
+        })
+
+    db.add(AssignmentResult(
+        assignment_id=a.id,
+        student_id=student_id,
+        nickname=nickname,
+        score=score,
+        correct_count=correct_count,
+        total_questions=len(questions),
+        answers_json=json.dumps(review, ensure_ascii=False),
+    ))
+    db.commit()
+    logger.info("assignment %s: submission by %r (score=%d, %d/%d correct)",
+                a.code, nickname, score, correct_count, len(questions))
+    return JSONResponse({
+        "ok": True,
+        "score": score,
+        "correct_count": correct_count,
+        "total": len(questions),
+        "review": review,
+    })
 
 
 # ─── Image upload ─────────────────────────────────────────────────────────────
@@ -667,6 +1208,8 @@ async def ws_host(websocket: WebSocket, quiz_id: int, db: Session = Depends(get_
         "id": quiz.id,
         "name": quiz.name,
         "read_time": quiz.read_time,
+        "scoring_mode": getattr(quiz, "scoring_mode", None) or "speed",
+        "streak_bonus": bool(getattr(quiz, "streak_bonus", False)),
         "questions": [
             {
                 "text": q.text,
@@ -724,6 +1267,43 @@ async def ws_host(websocket: WebSocket, quiz_id: int, db: Session = Depends(get_
             elif t == "end_game" and room_code:
                 await game_manager.end_game(room_code)
 
+            elif t == "set_teams" and room_code:
+                await game_manager.set_teams(room_code, data.get("count", 0))
+
+            elif t == "lock_room" and room_code:
+                locked = game_manager.set_locked(room_code, data.get("locked", False))
+                await websocket.send_json({"type": "room_locked", "locked": locked})
+
+            elif t == "kick_player" and room_code:
+                await game_manager.kick_player(room_code, data.get("player_id", ""))
+
+            elif t == "set_class" and room_code:
+                class_id = data.get("class_id")
+                roster = None
+                class_name = None
+                if class_id:
+                    cg = db.get(ClassGroup, int(class_id))
+                    if cg:
+                        class_name = cg.name
+                        roster = [
+                            {"student_id": s.id, "name": s.name}
+                            for s in db.exec(
+                                select(Student).where(Student.class_id == cg.id)
+                            ).all()
+                        ]
+                    else:
+                        class_id = None
+                ok = game_manager.set_class(
+                    room_code, int(class_id) if class_id else None,
+                    class_name, roster)
+                await websocket.send_json({
+                    "type": "class_set",
+                    "ok": bool(ok),
+                    "class_id": class_id,
+                    "class_name": class_name,
+                    "roster_size": len(roster or []),
+                })
+
             if room_code:
                 _s = game_manager.get_session(room_code)
                 if _s and _s.state == "ended" and not _s.analytics_persisted:
@@ -751,7 +1331,25 @@ async def ws_player(websocket: WebSocket):
             data = await websocket.receive_json()
             t = data.get("type")
 
-            if t == "join":
+            if t == "room_info":
+                # Pre-join probe: lets the client show the roster picker (or a
+                # locked-room message) before attempting to join
+                rc = data.get("room_code", "").strip().upper()
+                session = game_manager.get_session(rc)
+                if not session or session.state == "ended":
+                    await websocket.send_json({"type": "room_info", "exists": False})
+                    continue
+                await websocket.send_json({
+                    "type": "room_info",
+                    "exists": True,
+                    "state": session.state,
+                    "locked": session.locked,
+                    "has_roster": bool(session.roster),
+                    "roster_names": session.available_roster_names(),
+                    "class_name": session.class_name,
+                })
+
+            elif t == "join":
                 rc = data.get("room_code", "").strip().upper()
                 nickname = data.get("nickname", "").strip()
 
@@ -762,8 +1360,23 @@ async def ws_player(websocket: WebSocket):
                 if session.state != "lobby":
                     await websocket.send_json({"type": "error", "message": "Game already in progress"})
                     continue
+                if session.locked:
+                    await websocket.send_json({"type": "error", "message": "room_locked"})
+                    continue
                 if not nickname:
                     await websocket.send_json({"type": "error", "message": "Nickname is required"})
+                    continue
+                if not is_nickname_allowed(nickname):
+                    await websocket.send_json({"type": "error", "message": "nickname_not_allowed"})
+                    continue
+                if session.roster and nickname.lower() not in (
+                    r["name"].lower() for r in session.roster
+                ):
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "pick_from_roster",
+                        "roster_names": session.available_roster_names(),
+                    })
                     continue
                 taken = any(
                     p.nickname.lower() == nickname.lower()
@@ -776,15 +1389,19 @@ async def ws_player(websocket: WebSocket):
 
                 room_code = rc
                 player_id = await game_manager.add_player(rc, nickname, websocket)
+                player = session.players.get(player_id) if player_id else None
                 player_list = session.connected_player_list()
-                await websocket.send_json(
-                    {
-                        "type": "joined",
-                        "player_id": player_id,
-                        "player_list": player_list,
-                        "room_code": rc,
-                    }
-                )
+                joined_msg = {
+                    "type": "joined",
+                    "player_id": player_id,
+                    "player_list": player_list,
+                    "room_code": rc,
+                    "team": player.team if player else None,
+                    "team_count": session.team_count,
+                }
+                if player and player.team is not None:
+                    joined_msg["team_name"] = TEAM_NAMES[player.team % len(TEAM_NAMES)]
+                await websocket.send_json(joined_msg)
 
             elif t == "answer" and player_id and room_code:
                 await game_manager.handle_answer(
@@ -848,7 +1465,8 @@ async def ws_player(websocket: WebSocket):
                         "question_index": result["question_index"],
                     }
                     for key in ("question", "phase", "read_time_remaining",
-                                "answer_time_remaining", "already_answered", "reveal"):
+                                "answer_time_remaining", "already_answered", "reveal",
+                                "team", "team_name", "streak"):
                         if key in result:
                             rejoined_msg[key] = result[key]
                     await websocket.send_json(rejoined_msg)

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ class_group.name }} — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      <a href="/admin/classes" class="btn btn-ghost btn-sm">← Clases</a>
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
+    </div>
+  </nav>
+
+  <div class="dash-header">
+    <h1>{{ class_group.name }}</h1>
+    <span class="count">{{ students|length }} estudiante{{ 's' if students|length != 1 }}</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:32px;align-items:start">
+    <div>
+      <h3 class="course-group-heading" style="margin-top:0">Estudiantes</h3>
+      {% if students %}
+      <div style="overflow-x:auto">
+        <table class="stat-table">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th style="text-align:right">Sesiones</th>
+              <th style="text-align:right">Promedio</th>
+              <th style="text-align:right">Mejor</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in students %}
+            <tr>
+              <td><a href="/admin/student/{{ s.id }}" style="color:var(--text);font-weight:600">{{ s.name }}</a></td>
+              <td style="text-align:right">{{ s.sessions_played }}</td>
+              <td style="text-align:right;font-family:'Syne Mono',monospace">{{ s.avg_score if s.avg_score is not none else '—' }}</td>
+              <td style="text-align:right;font-family:'Syne Mono',monospace">{{ s.best_score if s.best_score is not none else '—' }}</td>
+              <td style="text-align:right">
+                <a href="/admin/student/{{ s.id }}" class="btn btn-ghost btn-sm">Progreso</a>
+                <form method="post" action="/admin/student/{{ s.id }}/delete" style="display:inline"
+                      onsubmit="return confirm('¿Quitar a {{ s.name }} de la clase?')">
+                  <button type="submit" class="btn btn-ghost btn-sm">✕</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p style="color:var(--text-muted)">Agrega estudiantes con el formulario de la derecha.</p>
+      {% endif %}
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">
+      <h3 style="margin:0 0 12px;font-size:16px">Agregar estudiantes</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px">Un nombre por línea.</p>
+      <form method="post" action="/admin/class/{{ class_group.id }}/students">
+        <textarea name="names" rows="8" required
+                  placeholder="Ana García&#10;Luis Pérez&#10;María López"
+                  style="width:100%;resize:vertical;margin-bottom:12px"></textarea>
+        <button type="submit" class="btn btn-primary" style="width:100%">+ Agregar</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<style>
+.stat-table { width:100%; border-collapse:collapse; font-size:14px; }
+.stat-table th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border);
+  font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:700;
+  text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); }
+.stat-table td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.stat-table tr:hover td { background:var(--surface-2); }
+</style>
+{% endblock %}

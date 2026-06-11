@@ -20,8 +20,10 @@
 </head>
 <body>
   <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+  <button id="lang-toggle" onclick="qlToggleLang()" aria-label="Toggle language">ES</button>
   {% block content %}{% endblock %}
   <script src="/static/js/theme.js"></script>
+  <script src="/static/js/i18n.js"></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

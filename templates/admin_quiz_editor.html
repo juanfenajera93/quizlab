@@ -47,6 +47,23 @@
         <span style="color:var(--text-muted);font-size:13px;align-self:center">s</span>
       </div>
     </div>
+    <div class="field" style="margin:0">
+      <label>Puntuación</label>
+      <div class="radio-group" id="scoring-mode-group">
+        <label class="radio-btn" title="Más puntos por responder rápido (estilo Kahoot)">
+          <input type="radio" name="scoring-mode" value="speed"
+                 {% if not quiz or quiz.scoring_mode != 'accuracy' %}checked{% endif %}> Velocidad
+        </label>
+        <label class="radio-btn" title="Puntos completos por respuesta correcta, sin presión de tiempo">
+          <input type="radio" name="scoring-mode" value="accuracy"
+                 {% if quiz and quiz.scoring_mode == 'accuracy' %}checked{% endif %}> Precisión
+        </label>
+        <label class="radio-btn" title="+10% por respuesta correcta consecutiva (máx +50%)">
+          <input type="checkbox" id="streak-bonus"
+                 {% if quiz and quiz.streak_bonus %}checked{% endif %}> 🔥 Racha
+        </label>
+      </div>
+    </div>
   </div>
 
   <!-- Single-column question list — panel is a fixed overlay -->
@@ -801,11 +818,14 @@ function saveQuiz() {
 
   var readTime = getReadTime();
 
+  var scoringEl = document.querySelector('input[name="scoring-mode"]:checked');
   var payload = {
     quiz_id: quizId,
     name: name,
     course_tag: document.getElementById('course-tag').value.trim(),
     read_time: readTime,
+    scoring_mode: scoringEl ? scoringEl.value : 'speed',
+    streak_bonus: document.getElementById('streak-bonus').checked,
     questions: questions
   };
 

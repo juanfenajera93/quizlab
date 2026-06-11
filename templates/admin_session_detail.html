@@ -10,6 +10,7 @@
       {% if quiz %}
       <a href="/admin/quiz/{{ quiz.id }}/history" class="btn btn-ghost btn-sm">← Historial</a>
       {% endif %}
+      <a href="/admin/session/{{ session.id }}/export.csv" class="btn btn-primary btn-sm">↓ Exportar CSV</a>
       <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
     </div>
   </nav>

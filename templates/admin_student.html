@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ student.name }} — Progreso — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      {% if class_group %}
+      <a href="/admin/class/{{ class_group.id }}" class="btn btn-ghost btn-sm">← {{ class_group.name }}</a>
+      {% endif %}
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
+    </div>
+  </nav>
+
+  <div class="dash-header">
+    <div>
+      <h1>{{ student.name }}</h1>
+      {% if class_group %}
+      <p style="margin:4px 0 0;color:var(--text-muted);font-size:14px;text-transform:none;letter-spacing:normal">{{ class_group.name }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="progress-summary">
+    <div class="summary-card">
+      <div class="summary-num">{{ summary.sessions }}</div>
+      <div class="summary-label">Sesiones</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-num">{{ summary.avg_score }}</div>
+      <div class="summary-label">Promedio</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-num">{{ summary.best_score }}</div>
+      <div class="summary-label">Mejor puntaje</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-num">#{{ summary.avg_rank }}</div>
+      <div class="summary-label">Posición promedio</div>
+    </div>
+  </div>
+
+  {% if history %}
+  <h3 class="course-group-heading">Evolución</h3>
+  <div class="score-bars">
+    {% for h in history %}
+    <div class="score-bar-col" title="{{ h.quiz_name }} — {{ h.score }} pts ({{ h.played_at.strftime('%d %b') }})">
+      <div class="score-bar-fill" style="height:{{ h.bar_pct }}%"></div>
+      <span class="score-bar-label">{{ h.played_at.strftime('%d/%m') }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <h3 class="course-group-heading">Historial</h3>
+  <div style="overflow-x:auto;margin-bottom:40px">
+    <table class="stat-table">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Quiz</th>
+          <th style="text-align:right">Puntos</th>
+          <th style="text-align:right">Posición</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in history|reverse %}
+        <tr>
+          <td>{{ h.played_at.strftime('%d %b %Y %H:%M') }}</td>
+          <td>{{ h.quiz_name }}</td>
+          <td style="text-align:right;font-family:'Syne Mono',monospace">{{ h.score }}</td>
+          <td style="text-align:right">#{{ h.rank }} de {{ h.student_count }}</td>
+          <td style="text-align:right"><a href="/admin/session/{{ h.session_id }}" class="btn btn-ghost btn-sm">Sesión</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted)">Este estudiante todavía no tiene sesiones registradas. Vincula una clase al iniciar el quiz para registrar su progreso.</p>
+  {% endif %}
+</div>
+
+<style>
+.progress-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:16px; margin-bottom:36px; }
+.summary-card { background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:18px 16px; text-align:center; }
+.summary-num { font-family:'Barlow Condensed',sans-serif; font-weight:900;
+  font-size:34px; color:var(--lime); line-height:1; }
+.summary-label { font-size:12px; color:var(--text-muted); text-transform:uppercase;
+  letter-spacing:0.06em; margin-top:6px; }
+.score-bars { display:flex; align-items:flex-end; gap:10px; height:140px;
+  padding:0 4px 24px; margin-bottom:32px; border-bottom:1px solid var(--border); }
+.score-bar-col { position:relative; width:36px; height:100%; display:flex;
+  flex-direction:column; justify-content:flex-end; }
+.score-bar-fill { background:var(--lime); border-radius:4px 4px 0 0; min-height:3px;
+  transition:height 0.4s ease; }
+.score-bar-label { position:absolute; bottom:-22px; left:50%; transform:translateX(-50%);
+  font-size:10px; color:var(--text-muted); white-space:nowrap; }
+.stat-table { width:100%; border-collapse:collapse; font-size:14px; }
+.stat-table th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border);
+  font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:700;
+  text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); }
+.stat-table td { padding:10px 12px; border-bottom:1px solid var(--border); }
+.stat-table tr:hover td { background:var(--surface-2); }
+</style>
+{% endblock %}

@@ -8,6 +8,8 @@ class Quiz(SQLModel, table=True):
     name: str
     course_tag: Optional[str] = None
     read_time: int = Field(default=5)
+    scoring_mode: str = Field(default="speed")   # speed | accuracy
+    streak_bonus: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_played: Optional[datetime] = None
 
@@ -31,6 +33,7 @@ class QuizSession(SQLModel, table=True):
     room_code: str
     played_at: datetime = Field(default_factory=datetime.utcnow)
     student_count: int = Field(default=0)
+    class_id: Optional[int] = Field(default=None, foreign_key="classgroup.id")
 
 
 class SessionResult(SQLModel, table=True):
@@ -39,6 +42,7 @@ class SessionResult(SQLModel, table=True):
     nickname: str
     score: int
     rank: int
+    student_id: Optional[int] = Field(default=None, foreign_key="student.id")
 
 
 class QuestionStat(SQLModel, table=True):
@@ -51,3 +55,36 @@ class QuestionStat(SQLModel, table=True):
     total_answers: int = Field(default=0)
     avg_time_seconds: float = Field(default=0.0)
     answers_json: str = Field(default="[]")
+
+
+class ClassGroup(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Student(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    class_id: int = Field(foreign_key="classgroup.id")
+    name: str
+
+
+class Assignment(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    quiz_id: int = Field(foreign_key="quiz.id")
+    class_id: Optional[int] = Field(default=None, foreign_key="classgroup.id")
+    code: str                                  # share code used in /assignment/{code}
+    deadline: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AssignmentResult(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    assignment_id: int = Field(foreign_key="assignment.id")
+    student_id: Optional[int] = Field(default=None, foreign_key="student.id")
+    nickname: str
+    score: int = Field(default=0)
+    correct_count: int = Field(default=0)
+    total_questions: int = Field(default=0)
+    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+    answers_json: str = Field(default="[]")    # per-question review payload

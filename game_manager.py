@@ -11,6 +11,34 @@ from fastapi import WebSocket
 
 logger = logging.getLogger("quizlab.game")
 
+# Nickname profanity filter (es/en). Matched as substrings after normalizing
+# accents and common leetspeak, so "P3nd3jo" is caught too.
+_BANNED_SUBSTRINGS = (
+    "pendej", "puta", "puto", "verga", "mierda", "chinga", "culero", "culo",
+    "pinche", "cabron", "mamon", "joto", "marica", "zorra", "perra", "polla",
+    "cojone", "gilipolla", "coño", "cono",
+    "fuck", "shit", "bitch", "cunt", "dick", "cock", "pussy", "whore",
+    "slut", "nigg", "fag", "retard", "asshole", "penis", "vagina",
+)
+
+_LEET_MAP = str.maketrans("013457@$", "oieastas")
+
+
+def _normalize_for_filter(text: str) -> str:
+    import unicodedata
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = text.translate(_LEET_MAP)
+    return "".join(c for c in text if c.isalnum())
+
+
+def is_nickname_allowed(nickname: str) -> bool:
+    norm = _normalize_for_filter(nickname)
+    return not any(bad in norm for bad in _BANNED_SUBSTRINGS)
+
+
+TEAM_NAMES = ["Equipo Lima", "Equipo Fuego", "Equipo Violeta", "Equipo Azul"]
+
 
 class Player:
     def __init__(self, player_id: str, nickname: str, websocket: WebSocket,
@@ -25,6 +53,13 @@ class Player:
         self.confirmed: set = set()              # locked question ids
         self.answer_times: Dict[int, float] = {}
         self.connected = True
+        self.streak = 0                          # consecutive fully-correct answers
+        self.team: Optional[int] = None          # team index when team mode is on
+        self.student_id: Optional[int] = None    # roster identity when class attached
+        # Scoring outcome per question, written once at reveal so rejoins and
+        # the end-of-game review never re-derive (or re-randomize) points:
+        # {qi: {"points", "correct", "answered", "streak_after"}}
+        self.question_results: Dict[int, dict] = {}
 
 
 class GameSession:
@@ -49,6 +84,49 @@ class GameSession:
         self.wordcloud_answers: Dict[int, Dict[str, str]] = {}
         # Question indices already revealed (guards against double-scoring)
         self.revealed_questions: set = set()
+        # Room hygiene: locked rooms reject new joins
+        self.locked = False
+        # Team mode: number of teams (None/0 = individual play)
+        self.team_count: Optional[int] = None
+        # Class roster: [{"student_id", "name"}] — when set, players must pick
+        # their name from this list and get a stable student identity
+        self.roster: Optional[List[dict]] = None
+        self.class_id: Optional[int] = None
+        self.class_name: Optional[str] = None
+
+    @property
+    def scoring_mode(self) -> str:
+        return self.quiz_data.get("scoring_mode", "speed")
+
+    @property
+    def streak_bonus_enabled(self) -> bool:
+        return bool(self.quiz_data.get("streak_bonus", False))
+
+    def get_team_leaderboard(self) -> List[dict]:
+        if not self.team_count:
+            return []
+        totals = [0] * self.team_count
+        members = [0] * self.team_count
+        for p in self.players.values():
+            if p.team is not None and 0 <= p.team < self.team_count:
+                totals[p.team] += p.score
+                members[p.team] += 1
+        teams = [
+            {"team": i, "name": TEAM_NAMES[i % len(TEAM_NAMES)],
+             "score": totals[i], "members": members[i]}
+            for i in range(self.team_count)
+        ]
+        teams.sort(key=lambda t: t["score"], reverse=True)
+        for i, t in enumerate(teams):
+            t["rank"] = i + 1
+        return teams
+
+    def available_roster_names(self) -> List[str]:
+        """Roster names not yet claimed by a connected player."""
+        if not self.roster:
+            return []
+        claimed = {p.nickname.lower() for p in self.players.values()}
+        return [r["name"] for r in self.roster if r["name"].lower() not in claimed]
 
     def touch(self):
         """Mark the session active so the cleanup loop doesn't collect it."""
@@ -77,6 +155,8 @@ class GameSession:
                     "nickname": p.nickname,
                     "score": p.score,
                     "player_id": p.player_id,
+                    "team": p.team,
+                    "student_id": p.student_id,
                 }
                 for p in self.players.values()
             ],
@@ -89,17 +169,21 @@ class GameSession:
 
     def connected_player_list(self) -> List[dict]:
         return [
-            {"nickname": p.nickname, "player_id": p.player_id}
+            {"nickname": p.nickname, "player_id": p.player_id, "team": p.team}
             for p in self.players.values()
             if p.connected
         ]
 
 
-def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit, base_points):
+def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
+                  base_points, scoring_mode="speed"):
     """Returns (points_earned, is_correct)"""
     min_pts = math.floor(base_points * 0.5)
 
     def speed_bonus(tt):
+        if scoring_mode == "accuracy":
+            # Accuracy mode: full points for a correct answer, no time pressure
+            return base_points
         time_remaining = max(0.0, time_limit - tt)
         pts = math.floor(base_points * (time_remaining / time_limit)) if time_limit > 0 else 0
         return max(min_pts, pts)
@@ -188,11 +272,27 @@ class GameManager:
             return None
 
         player_id = str(uuid.uuid4())
-        session.players[player_id] = Player(player_id, nickname, websocket,
-                                            session.room_code)
+        player = Player(player_id, nickname, websocket, session.room_code)
+        if session.roster:
+            entry = next(
+                (r for r in session.roster
+                 if r["name"].lower() == nickname.lower()),
+                None,
+            )
+            if entry:
+                player.student_id = entry["student_id"]
+        if session.team_count:
+            # Round-robin onto the currently smallest team
+            sizes = [0] * session.team_count
+            for p in session.players.values():
+                if p.team is not None and 0 <= p.team < session.team_count:
+                    sizes[p.team] += 1
+            player.team = sizes.index(min(sizes))
+        session.players[player_id] = player
         session.touch()
-        logger.info("room %s: player joined %r (%s)",
-                    session.room_code, nickname, player_id)
+        logger.info("room %s: player joined %r (%s, team=%s, student_id=%s)",
+                    session.room_code, nickname, player_id,
+                    player.team, player.student_id)
 
         player_list = session.connected_player_list()
         await self._broadcast_players(session, {
@@ -206,6 +306,90 @@ class GameManager:
             "players": player_list,
         })
         return player_id
+
+    async def set_teams(self, room_code: str, count: int):
+        """Lobby-only: turn team mode on (2-4 teams) or off (0). Reassigns
+        everyone already in the room round-robin."""
+        session = self.get_session(room_code)
+        if not session or session.state != "lobby":
+            return
+        count = max(0, min(4, int(count)))
+        session.team_count = count if count >= 2 else None
+        session.touch()
+        players = list(session.players.values())
+        for i, p in enumerate(players):
+            p.team = (i % count) if session.team_count else None
+        logger.info("room %s: team mode set to %s",
+                    session.room_code, session.team_count or "off")
+        for p in players:
+            await self._send_to_player(p, {
+                "type": "team_update",
+                "team": p.team,
+                "team_name": (TEAM_NAMES[p.team % len(TEAM_NAMES)]
+                              if p.team is not None else None),
+                "team_count": session.team_count,
+            })
+        await self._send_host(session, {
+            "type": "player_update",
+            "count": len(session.connected_player_list()),
+            "players": session.connected_player_list(),
+            "team_count": session.team_count,
+        })
+
+    def set_class(self, room_code: str, class_id: Optional[int],
+                  class_name: Optional[str], roster: Optional[List[dict]]):
+        """Attach (or detach) a class roster to a lobby session."""
+        session = self.get_session(room_code)
+        if not session or session.state != "lobby":
+            return False
+        session.class_id = class_id
+        session.class_name = class_name
+        session.roster = roster
+        session.touch()
+        logger.info("room %s: class %s attached (%d roster names)",
+                    session.room_code, class_name or "none",
+                    len(roster or []))
+        return True
+
+    def set_locked(self, room_code: str, locked: bool) -> bool:
+        session = self.get_session(room_code)
+        if not session:
+            return False
+        session.locked = bool(locked)
+        session.touch()
+        logger.info("room %s: room %s", session.room_code,
+                    "locked" if session.locked else "unlocked")
+        return session.locked
+
+    async def kick_player(self, room_code: str, player_id: str):
+        session = self.get_session(room_code)
+        if not session:
+            return
+        player = session.players.pop(player_id, None)
+        if not player:
+            return
+        session.touch()
+        logger.info("room %s: player %r kicked by host",
+                    session.room_code, player.nickname)
+        try:
+            await player.websocket.send_json({"type": "kicked"})
+        except Exception:
+            pass
+        try:
+            await player.websocket.close()
+        except Exception:
+            pass
+        player_list = session.connected_player_list()
+        await self._broadcast_players(session, {
+            "type": "player_update",
+            "player_count": len(player_list),
+            "player_list": player_list,
+        })
+        await self._send_host(session, {
+            "type": "player_update",
+            "count": len(player_list),
+            "players": player_list,
+        })
 
     async def start_game(self, room_code: str):
         session = self.get_session(room_code)
@@ -440,17 +624,40 @@ class GameManager:
         else:
             scoring_correct_json = correct_json
 
-        # Score all players
+        # Score all players, recording the outcome so rejoins and the
+        # end-of-game review reuse it instead of re-deriving points
+        streak_counts = q_type in ("mc", "tf", "ms", "order")
         for player in session.players.values():
             answer = player.answers.get(qi)
             if answer is None:
                 # For order: use selections as final answer
                 answer = player.selections.get(qi)
             if answer is None:
+                if streak_counts:
+                    player.streak = 0
+                player.question_results[qi] = {
+                    "points": 0, "correct": False, "answered": False,
+                    "streak_after": player.streak,
+                }
                 continue
             time_taken = player.answer_times.get(qi, time_limit)
-            pts, _ = _score_answer(q_type, scoring_correct_json, answer, time_taken, time_limit, base_points)
+            pts, is_correct = _score_answer(
+                q_type, scoring_correct_json, answer, time_taken, time_limit,
+                base_points, session.scoring_mode)
+            if streak_counts:
+                if is_correct:
+                    player.streak += 1
+                    if session.streak_bonus_enabled and player.streak >= 2:
+                        # +10% of base points per consecutive correct, capped at +50%
+                        pts += math.floor(
+                            base_points * 0.1 * min(player.streak - 1, 5))
+                else:
+                    player.streak = 0
             player.score += pts
+            player.question_results[qi] = {
+                "points": pts, "correct": is_correct, "answered": True,
+                "streak_after": player.streak,
+            }
 
         leaderboard = session.get_leaderboard()
 
@@ -472,6 +679,78 @@ class GameManager:
         else:
             await self._send_question(session)
 
+    def _build_review(self, session: GameSession, player: Player) -> List[dict]:
+        """Per-question review for one player: what they answered, what was
+        right, and whether they got it — shown on their final screen."""
+        review = []
+        for qi, q in enumerate(session.questions):
+            if qi not in session.revealed_questions:
+                continue  # skipped questions were never scored
+            q_type = q.get("question_type", "mc")
+            options = q.get("options", [])
+            correct_json = q.get("correct_json", "")
+            result = player.question_results.get(qi, {})
+            answered = result.get("answered", False)
+            ans = player.answers.get(qi)
+            if ans is None:
+                ans = player.selections.get(qi)
+
+            your_display = "—"
+            correct_display = ""
+            if q_type in ("mc", "tf", "poll"):
+                if answered and isinstance(ans, int) and 0 <= ans < len(options):
+                    your_display = str(options[ans])
+                if q_type != "poll":
+                    try:
+                        ci = int(correct_json) if correct_json != "" else 0
+                    except (ValueError, TypeError):
+                        ci = 0
+                    if 0 <= ci < len(options):
+                        correct_display = str(options[ci])
+            elif q_type == "ms":
+                if answered and isinstance(ans, list):
+                    your_display = ", ".join(
+                        str(options[i]) for i in ans
+                        if isinstance(i, int) and 0 <= i < len(options)
+                    ) or "—"
+                try:
+                    correct_display = ", ".join(
+                        str(options[i]) for i in json.loads(correct_json)
+                        if isinstance(i, int) and 0 <= i < len(options)
+                    )
+                except Exception:
+                    correct_display = ""
+            elif q_type == "order":
+                # Player ordering indexes into the shuffled list they saw
+                perm = session.order_correct.get(qi)
+                send_options = options[:]
+                if perm and len(perm) == len(options):
+                    send_options = [""] * len(options)
+                    for orig_idx, shuf_pos in enumerate(perm):
+                        send_options[shuf_pos] = options[orig_idx]
+                if answered and isinstance(ans, list):
+                    your_display = " → ".join(
+                        str(send_options[i]) for i in ans
+                        if isinstance(i, int) and 0 <= i < len(send_options)
+                    ) or "—"
+                correct_display = " → ".join(str(o) for o in options)
+            elif q_type == "wordcloud":
+                if answered and isinstance(ans, str):
+                    your_display = ans
+
+            review.append({
+                "index": qi,
+                "text": q.get("text", ""),
+                "question_type": q_type,
+                "your_answer": your_display,
+                "correct_answer": correct_display,
+                "answered": answered,
+                "correct": result.get("correct", False),
+                "points": result.get("points", 0),
+                "scored": q_type not in ("poll", "wordcloud"),
+            })
+        return review
+
     async def end_game(self, room_code: str):
         session = self.get_session(room_code)
         if not session:
@@ -480,12 +759,20 @@ class GameManager:
         session.state = "ended"
         session.touch()
         leaderboard = session.get_leaderboard()
+        teams = session.get_team_leaderboard() if session.team_count else None
         logger.info("room %s: game ended (%d players, %d/%d questions)",
                     session.room_code, len(session.players),
                     session.current_question_index + 1, len(session.questions))
-        msg = {"type": "game_end", "leaderboard": leaderboard}
-        await self._broadcast_players(session, msg)
-        await self._send_host(session, msg)
+        host_msg: dict = {"type": "game_end", "leaderboard": leaderboard}
+        if teams:
+            host_msg["teams"] = teams
+        for player in session.players.values():
+            player_msg = dict(host_msg)
+            player_msg["review"] = self._build_review(session, player)
+            if teams is not None:
+                player_msg["your_team"] = player.team
+            await self._send_to_player(player, player_msg)
+        await self._send_host(session, host_msg)
 
     async def remove_player(self, room_code: str, player_id: str,
                             websocket: Optional[WebSocket] = None):
@@ -577,11 +864,17 @@ class GameManager:
         if answer is None:
             answer = player.selections.get(qi)
 
-        time_taken = player.answer_times.get(qi, time_limit)
-        pts_earned, is_correct = _score_answer(
-            q_type, scoring_correct_json, answer if answer is not None else -1,
-            time_taken, time_limit, base_points
-        )
+        # Prefer the outcome recorded at reveal time (includes streak bonus);
+        # recompute only if this player was somehow never scored
+        stored = player.question_results.get(qi)
+        if stored is not None:
+            pts_earned, is_correct = stored["points"], stored["correct"]
+        else:
+            time_taken = player.answer_times.get(qi, time_limit)
+            pts_earned, is_correct = _score_answer(
+                q_type, scoring_correct_json, answer if answer is not None else -1,
+                time_taken, time_limit, base_points, session.scoring_mode
+            )
 
         rank = next(
             (e["rank"] for e in leaderboard if e["player_id"] == player.player_id),
@@ -601,9 +894,13 @@ class GameManager:
             "total_players": len([p for p in session.players.values() if p.connected]),
             "leaderboard": leaderboard[:5],
             "no_points": base_points == 0 or q_type == "wordcloud",
+            "streak": player.streak,
         }
         if q_type == "wordcloud":
             reveal_msg["your_text"] = player.answers.get(qi, "")
+        if session.team_count:
+            reveal_msg["teams"] = session.get_team_leaderboard()
+            reveal_msg["your_team"] = player.team
         return reveal_msg
 
     def _build_host_reveal(self, session: GameSession) -> dict:
@@ -633,6 +930,8 @@ class GameManager:
             "correct_json": scoring_correct_json,
             "leaderboard": session.get_leaderboard()[:5],
         }
+        if session.team_count:
+            host_reveal["teams"] = session.get_team_leaderboard()
         if q_type == "wordcloud":
             freq_dict: Dict[str, int] = {}
             for txt in session.wordcloud_answers.get(qi, {}).values():
@@ -722,6 +1021,10 @@ class GameManager:
             "state": session.state,
             "score": player.score,
             "question_index": session.current_question_index,
+            "team": player.team,
+            "team_name": (TEAM_NAMES[player.team % len(TEAM_NAMES)]
+                          if player.team is not None else None),
+            "streak": player.streak,
         }
 
         qi = session.current_question_index
@@ -759,7 +1062,13 @@ class GameManager:
             "question_index": session.current_question_index,
             "player_list": session.connected_player_list(),
             "leaderboard": session.get_leaderboard(),
+            "locked": session.locked,
+            "team_count": session.team_count,
+            "class_id": session.class_id,
+            "class_name": session.class_name,
         }
+        if session.team_count:
+            result["teams"] = session.get_team_leaderboard()
 
         if session.state in ("question", "reveal"):
             payload = self._question_payload(session)
@@ -887,6 +1196,7 @@ class GameManager:
             "leaderboard": session.get_leaderboard(),
             "student_count": len(session.players),
             "room_code": session.room_code,
+            "class_id": session.class_id,
             "question_stats": question_stats,
         }
 

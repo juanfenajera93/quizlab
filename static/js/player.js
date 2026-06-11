@@ -3,6 +3,8 @@
 
   var CIRCUMFERENCE = 2 * Math.PI * 45;
 
+  var t = window.qlT || function (k, fb) { return fb || k; };
+
   var ws = null;
   var playerId = null;
   var roomCode = null;
@@ -18,6 +20,9 @@
   var playerScore = 0;
   var reconnectAttempts = 0;
   var reconnectTimeout = null;
+  var joinedNickname = '';    // what we actually joined with (input or roster pick)
+  var rosterMode = false;
+  var myTeamName = null;
 
   // ── Views ──────────────────────────────────────────────────────
   function _hideAllViews() {
@@ -58,7 +63,7 @@
     ws.onmessage = function (e) {
       try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
     };
-    ws.onclose = function () { showError('Conexión perdida. Recarga la página.'); };
+    ws.onclose = function () { showError(t('conn_lost')); };
     ws.onerror = function () {};
   }
 
@@ -127,6 +132,9 @@
       case 'state_sync':    onStateSync(msg);     break;
       case 'game_ended':    onGameEnded(msg);       break;
       case 'rejoined':      onRejoined(msg);        break;
+      case 'room_info':     onRoomInfo(msg);        break;
+      case 'team_update':   onTeamUpdate(msg);      break;
+      case 'kicked':        onKicked();             break;
       case 'ping':          send({ type: 'pong' }); break;
       case 'error':         onError(msg);           break;
     }
@@ -140,17 +148,41 @@
       sessionStorage.removeItem('quizlab_nickname');
       sessionStorage.removeItem('quizlab_player_id');
       showView('join-view');
-      showError('La sesión ya no está disponible.');
+      showError(t('session_gone'));
+    } else if (msg.message === 'room_locked') {
+      showError(t('room_locked'));
+    } else if (msg.message === 'nickname_not_allowed') {
+      showError(t('nickname_not_allowed'));
+    } else if (msg.message === 'Nickname already taken') {
+      showError(t('nickname_taken'));
+    } else if (msg.message === 'Room not found') {
+      showError(t('room_not_found'));
+    } else if (msg.message === 'Game already in progress') {
+      showError(t('game_in_progress'));
+    } else if (msg.message === 'pick_from_roster') {
+      showRosterPicker(msg.roster_names || []);
     } else {
       showError(msg.message);
     }
+  }
+
+  function onKicked() {
+    sessionStorage.removeItem('quizlab_room');
+    sessionStorage.removeItem('quizlab_nickname');
+    sessionStorage.removeItem('quizlab_player_id');
+    clearTimer();
+    if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
+    var emojiBar = document.getElementById('emoji-bar');
+    if (emojiBar) emojiBar.style.display = 'none';
+    showView('join-view');
+    showError(t('kicked_msg'));
   }
 
   function onJoined(msg) {
     playerId = msg.player_id;
     roomCode = msg.room_code;
     sessionStorage.setItem('quizlab_room', msg.room_code);
-    sessionStorage.setItem('quizlab_nickname', document.getElementById('nickname-input').value.trim());
+    sessionStorage.setItem('quizlab_nickname', joinedNickname);
     sessionStorage.setItem('quizlab_player_id', msg.player_id);
     if (ws) {
       ws.onclose = function () {
@@ -161,8 +193,8 @@
       };
     }
     document.getElementById('waiting-room-code').textContent = roomCode;
-    document.getElementById('my-nickname').textContent =
-      document.getElementById('nickname-input').value.trim();
+    document.getElementById('my-nickname').textContent = joinedNickname;
+    updateTeamBadge(msg.team, msg.team_name);
     showView('waiting-view');
     renderWaitingPlayers(msg.player_list || []);
     var emojiBar = document.getElementById('emoji-bar');
@@ -173,8 +205,28 @@
     renderWaitingPlayers(msg.player_list || []);
   }
 
+  function onTeamUpdate(msg) {
+    updateTeamBadge(msg.team, msg.team_name);
+  }
+
+  var TEAM_COLORS = ['var(--lime)', 'var(--fire)', 'var(--violet)', 'var(--answer-b)'];
+
+  function updateTeamBadge(team, teamName) {
+    myTeamName = teamName || null;
+    var badge = document.getElementById('team-badge');
+    if (!badge) return;
+    if (team === null || team === undefined || !teamName) {
+      badge.style.display = 'none';
+      return;
+    }
+    badge.style.display = '';
+    badge.textContent = teamName;
+    badge.style.borderColor = TEAM_COLORS[team % TEAM_COLORS.length];
+    badge.style.color = TEAM_COLORS[team % TEAM_COLORS.length];
+  }
+
   function onGameStart() {
-    document.getElementById('waiting-pulse-text').textContent = '¡El juego comienza!';
+    document.getElementById('waiting-pulse-text').textContent = t('game_starting');
   }
 
   // ── Two-phase question flow ────────────────────────────────────
@@ -274,7 +326,7 @@
       var confirmBtn = document.createElement('button');
       confirmBtn.id = 'ms-confirm-btn';
       confirmBtn.className = 'ms-confirm-btn';
-      confirmBtn.textContent = 'Confirmar';
+      confirmBtn.textContent = t('confirm');
       confirmBtn.addEventListener('click', confirmMcAnswer);
       container.parentNode.insertBefore(confirmBtn, container.nextSibling);
 
@@ -299,7 +351,7 @@
       var confirmBtn = document.createElement('button');
       confirmBtn.id = 'ms-confirm-btn';
       confirmBtn.className = 'ms-confirm-btn';
-      confirmBtn.textContent = 'Confirmar';
+      confirmBtn.textContent = t('confirm');
       confirmBtn.addEventListener('click', confirmMsAnswer);
       // Insert after the answers container
       container.parentNode.insertBefore(confirmBtn, container.nextSibling);
@@ -313,7 +365,7 @@
       var confirmBtn = document.createElement('button');
       confirmBtn.id = 'ms-confirm-btn';
       confirmBtn.className = 'ms-confirm-btn visible';
-      confirmBtn.textContent = 'Confirmar Orden';
+      confirmBtn.textContent = t('confirm_order');
       confirmBtn.addEventListener('click', confirmOrderAnswer);
       container.parentNode.insertBefore(confirmBtn, container.nextSibling);
 
@@ -326,7 +378,7 @@
       inputEl.id = 'wc-input';
       inputEl.className = 'wc-input';
       inputEl.maxLength = 50;
-      inputEl.placeholder = 'Escribe tu respuesta...';
+      inputEl.placeholder = t('write_answer');
       inputEl.autocomplete = 'off';
       var charCount = document.createElement('div');
       charCount.className = 'wc-char-count';
@@ -343,7 +395,7 @@
       var wcBtn = document.createElement('button');
       wcBtn.id = 'ms-confirm-btn';
       wcBtn.className = 'ms-confirm-btn';
-      wcBtn.textContent = 'CONFIRMAR';
+      wcBtn.textContent = t('confirm').toUpperCase();
       wcBtn.addEventListener('click', submitWordcloud);
       container.parentNode.insertBefore(wcBtn, container.nextSibling);
       // Focus the input after read phase
@@ -368,7 +420,7 @@
       var confirmBtn = document.createElement('button');
       confirmBtn.id = 'ms-confirm-btn';
       confirmBtn.className = 'ms-confirm-btn';
-      confirmBtn.textContent = 'Confirmar';
+      confirmBtn.textContent = t('confirm');
       confirmBtn.addEventListener('click', confirmMcAnswer);
       container.parentNode.insertBefore(confirmBtn, container.nextSibling);
     }
@@ -581,54 +633,101 @@
     var totalEl = document.getElementById('reveal-total-score');
     var rankEl  = document.getElementById('rank-display');
 
+    var flashClass = '';
     if (qType === 'wordcloud') {
       var yourText = msg.your_text || '';
       if (iconEl) { iconEl.textContent = '☁'; iconEl.style.color = 'var(--violet)'; }
-      labelEl.textContent = yourText ? '¡Enviado!' : 'Sin respuesta';
+      labelEl.textContent = yourText ? t('sent') : t('no_answer');
       labelEl.className = 'reveal-label ' + (yourText ? 'poll' : 'wrong');
-      popupEl.textContent = 'Sin puntos';
+      popupEl.textContent = t('no_points');
       popupEl.className = 'score-popup wrong';
     } else if (qType === 'poll') {
       // Poll: everyone who answered gets points
       if (iconEl) { iconEl.textContent = '✓'; iconEl.style.color = 'var(--lime)'; }
-      labelEl.textContent = '¡Gracias!';
+      labelEl.textContent = t('thanks');
       labelEl.className = 'reveal-label poll';
       popupEl.textContent = didAnswer ? '+' + ptsEarned + ' pts' : '0 pts';
       popupEl.className = didAnswer ? 'score-popup' : 'score-popup wrong';
     } else if (!didAnswer) {
       if (iconEl) { iconEl.textContent = '⏱'; iconEl.style.color = 'var(--answer-a)'; }
-      labelEl.textContent = '¡Tiempo!';
+      labelEl.textContent = t('times_up');
       labelEl.className = 'reveal-label wrong';
       popupEl.textContent = '0 pts';
       popupEl.className = 'score-popup wrong';
+      flashClass = 'flash-wrong';
     } else if (isCorrect) {
       if (iconEl) { iconEl.textContent = '✓'; iconEl.style.color = 'var(--answer-d)'; }
-      labelEl.textContent = '¡Correcto!';
+      labelEl.textContent = t('correct');
       labelEl.className = 'reveal-label correct';
       popupEl.textContent = '+' + ptsEarned + ' pts';
       popupEl.className = 'score-popup';
+      flashClass = 'flash-correct';
     } else if (ptsEarned > 0) {
       // Partial (ms)
       if (iconEl) { iconEl.textContent = '~'; iconEl.style.color = 'var(--answer-c)'; }
-      labelEl.textContent = '¡Parcial!';
+      labelEl.textContent = t('partial');
       labelEl.className = 'reveal-label partial';
       popupEl.textContent = '+' + ptsEarned + ' pts';
       popupEl.className = 'score-popup';
     } else {
       if (iconEl) { iconEl.textContent = '✗'; iconEl.style.color = 'var(--answer-a)'; }
-      labelEl.textContent = '¡Incorrecto!';
+      labelEl.textContent = t('incorrect');
       labelEl.className = 'reveal-label wrong';
       popupEl.textContent = '0 pts';
       popupEl.className = 'score-popup wrong';
+      flashClass = 'flash-wrong';
     }
 
     if (msg.no_points && qType !== 'wordcloud') {
-      popupEl.textContent = 'Sin puntos';
+      popupEl.textContent = t('no_points');
       popupEl.className = 'score-popup wrong';
     }
 
-    if (totalEl) totalEl.textContent = 'Total: ' + totalScore + ' pts';
-    if (rankEl)  rankEl.innerHTML = 'Estás <strong>#' + rank + '</strong> de ' + total + ' jugadores';
+    // Full-screen result flash + haptic feedback (game-controller feel)
+    var revealView = document.getElementById('reveal-view');
+    if (revealView && flashClass) {
+      revealView.classList.remove('flash-correct', 'flash-wrong');
+      revealView.offsetHeight;
+      revealView.classList.add(flashClass);
+      setTimeout(function () { revealView.classList.remove(flashClass); }, 900);
+    }
+    if (navigator.vibrate && flashClass) {
+      navigator.vibrate(flashClass === 'flash-correct' ? [60] : [40, 60, 40]);
+    }
+
+    // Streak counter
+    var streakEl = document.getElementById('streak-display');
+    if (streakEl) {
+      var streak = msg.streak || 0;
+      if (streak >= 2 && isCorrect) {
+        streakEl.style.display = '';
+        streakEl.textContent = '🔥 ' + t('streak') + ' ×' + streak;
+        streakEl.style.animation = 'none';
+        streakEl.offsetHeight;
+        streakEl.style.animation = '';
+      } else {
+        streakEl.style.display = 'none';
+      }
+    }
+
+    if (totalEl) totalEl.textContent = t('total') + ': ' + totalScore + ' pts';
+    if (rankEl) {
+      rankEl.innerHTML = t('rank_of')
+        .replace('{rank}', rank).replace('{total}', total);
+    }
+
+    // Team standing during reveal
+    var teamRankEl = document.getElementById('team-rank-display');
+    if (teamRankEl) {
+      var teams = msg.teams || [];
+      var mine = teams.find(function (te) { return te.team === msg.your_team; });
+      if (mine) {
+        teamRankEl.style.display = '';
+        teamRankEl.textContent = mine.name + ' — #' + mine.rank + ' · ' + mine.score + ' pts';
+      } else {
+        teamRankEl.style.display = 'none';
+      }
+    }
 
     // Restart animation
     popupEl.style.animation = 'none';
@@ -650,6 +749,19 @@
       document.getElementById('final-total-score').textContent = myEntry.score + ' pts';
     }
 
+    // Team result
+    var teamEl = document.getElementById('final-team');
+    if (teamEl) {
+      var teams = msg.teams || [];
+      var mine = teams.find(function (te) { return te.team === msg.your_team; });
+      if (mine) {
+        teamEl.style.display = '';
+        teamEl.textContent = mine.name + ' — #' + mine.rank + ' · ' + mine.score + ' pts';
+      } else {
+        teamEl.style.display = 'none';
+      }
+    }
+
     var list = document.getElementById('final-mini-lb-list');
     list.innerHTML = '';
     lb.slice(0, 8).forEach(function (entry, i) {
@@ -663,9 +775,42 @@
       list.appendChild(row);
     });
 
+    renderReview(msg.review || []);
+
     if (myEntry && myEntry.rank <= 3 && window.confetti) {
       confetti({ particleCount: 150, spread: 70, colors: ['#B9FF66', '#FF6B35', '#7B61FF'] });
     }
+  }
+
+  // Post-game review: each question with the player's answer vs the right one,
+  // so the game ends with actual learning, not just a rank
+  function renderReview(review) {
+    var wrap = document.getElementById('final-review');
+    var list = document.getElementById('final-review-list');
+    if (!wrap || !list) return;
+    list.innerHTML = '';
+    if (!review.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    review.forEach(function (item) {
+      var div = document.createElement('div');
+      div.className = 'review-item';
+      var mark = !item.scored
+        ? '<span class="review-mark neutral">◦</span>'
+        : item.correct
+          ? '<span class="review-mark ok">✓</span>'
+          : '<span class="review-mark bad">✗</span>';
+      var html =
+        '<div class="review-q">' + mark + ' ' + (item.index + 1) + '. ' +
+          escapeHtml(item.text) + '</div>' +
+        '<div class="review-a">' + t('your_answer') + ': <strong>' +
+          escapeHtml(item.your_answer) + '</strong></div>';
+      if (item.correct_answer && !item.correct && item.scored) {
+        html += '<div class="review-a">' + t('right_answer') + ': <strong>' +
+          escapeHtml(item.correct_answer) + '</strong></div>';
+      }
+      div.innerHTML = html;
+      list.appendChild(div);
+    });
   }
 
   // ── Reconnect state restore ───────────────────────────────────
@@ -766,7 +911,7 @@
     var emojiBar = document.getElementById('emoji-bar');
     if (emojiBar) emojiBar.style.display = 'none';
     var scoreEl = document.querySelector('#game-ended-view .game-ended-score');
-    if (scoreEl) scoreEl.textContent = 'Tu puntuación final: ' + playerScore + ' pts';
+    if (scoreEl) scoreEl.textContent = t('your_final_score') + ': ' + playerScore + ' pts';
     showGameEnded();
   }
 
@@ -881,20 +1026,68 @@
   }
 
   // ── Join flow ──────────────────────────────────────────────────
+  // joinGame first probes the room (room_info): locked rooms get a clear
+  // message, and rooms with a class attached show the roster picker instead
+  // of the free nickname input.
   window.joinGame = function () {
-    var rc   = document.getElementById('room-input').value.trim().toUpperCase();
-    var nick = document.getElementById('nickname-input').value.trim();
-
-    if (!rc || rc.length !== 6) { showError('Ingresa un código de sala de 6 caracteres'); return; }
-    if (!nick)                  { showError('Ingresa un apodo'); return; }
+    var rc = document.getElementById('room-input').value.trim().toUpperCase();
+    if (!rc || rc.length !== 6) { showError(t('enter_room_code')); return; }
 
     hideError();
     if (ws && ws.readyState === WebSocket.OPEN) {
-      send({ type: 'join', room_code: rc, nickname: nick });
+      send({ type: 'room_info', room_code: rc });
     } else {
-      connect(function () { send({ type: 'join', room_code: rc, nickname: nick }); });
+      connect(function () { send({ type: 'room_info', room_code: rc }); });
     }
   };
+
+  function doJoin(nickname) {
+    var rc = document.getElementById('room-input').value.trim().toUpperCase();
+    joinedNickname = nickname;
+    hideError();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      send({ type: 'join', room_code: rc, nickname: nickname });
+    } else {
+      connect(function () { send({ type: 'join', room_code: rc, nickname: nickname }); });
+    }
+  }
+
+  function onRoomInfo(msg) {
+    if (!msg.exists) { showError(t('room_not_found')); return; }
+    if (msg.locked)  { showError(t('room_locked')); return; }
+    if (msg.has_roster) {
+      showRosterPicker(msg.roster_names || []);
+      return;
+    }
+    rosterMode = false;
+    var nick = document.getElementById('nickname-input').value.trim();
+    if (!nick) {
+      showError(t('enter_nickname'));
+      document.getElementById('nickname-input').focus();
+      return;
+    }
+    doJoin(nick);
+  }
+
+  function showRosterPicker(names) {
+    rosterMode = true;
+    var nickField = document.getElementById('nickname-field');
+    var rosterField = document.getElementById('roster-field');
+    var list = document.getElementById('roster-list');
+    var joinBtn = document.getElementById('join-btn');
+    if (nickField) nickField.style.display = 'none';
+    if (joinBtn) joinBtn.style.display = 'none';
+    if (!rosterField || !list) return;
+    rosterField.style.display = '';
+    list.innerHTML = '';
+    names.forEach(function (name) {
+      var b = document.createElement('button');
+      b.className = 'roster-name-btn';
+      b.textContent = name;
+      b.addEventListener('click', function () { doJoin(name); });
+      list.appendChild(b);
+    });
+  }
 
   // ── Errors ─────────────────────────────────────────────────────
   function showError(msg) {

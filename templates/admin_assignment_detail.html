@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Tarea {{ assignment.code }} — QuizLab{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/admin.css">{% endblock %}
+
+{% block content %}
+<div class="admin-wrap">
+  <nav class="admin-nav">
+    <a href="/admin/dashboard" class="logo">Quiz<span>Lab</span></a>
+    <div class="nav-links">
+      <a href="/admin/quiz/{{ quiz.id }}/assignments" class="btn btn-ghost btn-sm">← Tareas</a>
+      <a href="/admin/dashboard" class="btn btn-ghost btn-sm">Dashboard</a>
+    </div>
+  </nav>
+
+  <div class="dash-header">
+    <div>
+      <h1>Tarea {{ assignment.code }}</h1>
+      <p style="margin:4px 0 0;color:var(--text-muted);font-size:14px;text-transform:none;letter-spacing:normal">
+        {{ quiz.name }}
+        {% if class_group %} · {{ class_group.name }}{% endif %}
+        {% if assignment.deadline %} · límite {{ assignment.deadline.strftime('%d %b %Y %H:%M') }}{% endif %}
+        {% if closed %} · <strong>CERRADA</strong>{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <h3 class="course-group-heading" style="margin-top:0">Entregas ({{ submissions|length }})</h3>
+  {% if submissions %}
+  <div style="overflow-x:auto;margin-bottom:40px">
+    <table class="stat-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Nombre</th>
+          <th style="text-align:right">Puntos</th>
+          <th style="text-align:right">Correctas</th>
+          <th>Entregado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in submissions %}
+        <tr>
+          <td class="rank-cell">{{ loop.index }}</td>
+          <td>{{ s.nickname }}</td>
+          <td style="text-align:right;font-family:'Syne Mono',monospace">{{ s.score }}</td>
+          <td style="text-align:right">{{ s.correct_count }}/{{ s.total_questions }}</td>
+          <td style="color:var(--text-muted)">{{ s.submitted_at.strftime('%d %b %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted)">Sin entregas todavía. Comparte el enlace: <code style="font-family:'Syne Mono',monospace">{{ request.base_url }}assignment/{{ assignment.code }}</code></p>
+  {% endif %}
+</div>
+
+<style>
+.stat-table { width:100%; border-collapse:collapse; font-size:14px; }
+.stat-table th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border);
+  font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:700;
+  text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); }
+.stat-table td { padding:10px 12px; border-bottom:1px solid var(--border); }
+.stat-table tr:hover td { background:var(--surface-2); }
+.rank-cell { font-family:'Barlow Condensed',sans-serif; font-weight:900; font-size:18px; width:36px; }
+</style>
+{% endblock %}

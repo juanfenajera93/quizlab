@@ -755,3 +755,163 @@ body:has(.host-wrap) #theme-toggle {
 }
 
 .wc-word:hover { transform: scale(1.06); }
+
+/* ── Lobby session settings (class / teams / lock) ── */
+.lobby-settings {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.lobby-setting { display: flex; flex-direction: column; gap: 4px; }
+
+.lobby-setting label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.lobby-setting select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  max-width: 220px;
+}
+
+/* ── Kickable player chips + team dots ── */
+.player-chip.kickable { cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+.player-chip.kickable:hover { border-color: var(--fire); color: var(--fire); }
+
+.team-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 7px;
+  flex-shrink: 0;
+}
+
+/* ── Reveal choreography ── */
+@keyframes correctPulse {
+  0%   { transform: scale(1); box-shadow: 0 0 0 0 rgba(185, 255, 102, 0.6); }
+  40%  { transform: scale(1.04); box-shadow: 0 0 0 16px rgba(185, 255, 102, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(185, 255, 102, 0); }
+}
+
+.answer-tile.correct-pulse { animation: correctPulse 0.8s ease-out 2; }
+
+/* ── FLIP leaderboard rank deltas ── */
+.lb-delta {
+  font-size: 12px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.lb-delta.up   { color: var(--lime); }
+.lb-delta.down { color: var(--fire); }
+
+/* ── Team standings (reveal panel) + team final ── */
+.team-standings { margin-bottom: 14px; }
+
+.team-standing-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.team-standing-name { flex: 1; font-weight: 600; }
+.team-standing-score { font-family: 'Syne Mono', monospace; font-size: 14px; }
+
+.team-final {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.team-final-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-size: 16px;
+}
+
+.team-final-row.winner { border-color: var(--lime); }
+.team-final-name { font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+  text-transform: uppercase; font-size: 18px; }
+.team-final-score { font-family: 'Syne Mono', monospace; font-size: 16px; }
+
+/* ── Podium ceremony staging ── */
+.stage-hidden { opacity: 0 !important; }
+
+@keyframes podiumPop {
+  0%   { opacity: 0; transform: translateY(40px) scale(0.7); }
+  60%  { opacity: 1; transform: translateY(-6px) scale(1.05); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.podium-item.podium-pop { animation: podiumPop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+#final-lb-list { transition: opacity 0.6s ease; }
+
+/* ── Timer tension ramp ── */
+@keyframes urgentRing {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.timer-container.urgent-ring { animation: urgentRing 1s ease-in-out infinite; }
+.timer-container.urgent-ring .ring-progress { stroke: var(--fire) !important; }
+
+/* ── Word cloud animations ── */
+@keyframes wordChipPop {
+  0% { transform: scale(0.3); opacity: 0; }
+  70% { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.word-chip-pop { animation: wordChipPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+@keyframes wcWordPop {
+  0% { transform: scale(0.2) rotate(-4deg); opacity: 0; }
+  70% { transform: scale(1.15) rotate(1deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+.wc-word-pop { display: inline-block; animation: wcWordPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+/* ── Projector mode: bigger, brighter, readable from the back row ── */
+body.projector-mode .q-text { font-size: 56px !important; line-height: 1.15; }
+body.projector-mode .tile-text { font-size: 30px !important; }
+body.projector-mode .tile-letter { font-size: 34px !important; }
+body.projector-mode .bar-letter { font-size: 24px !important; }
+body.projector-mode .bar-count { font-size: 22px !important; }
+body.projector-mode .chart-title,
+body.projector-mode .reveal-lb-title { font-size: 20px !important; }
+body.projector-mode .lb-row { font-size: 20px !important; }
+body.projector-mode .lb-name { font-size: 20px !important; }
+body.projector-mode .lb-score { font-size: 20px !important; }
+body.projector-mode .room-code-value { font-size: 84px !important; }
+body.projector-mode .player-chip { font-size: 20px !important; padding: 10px 18px !important; }
+body.projector-mode .q-progress { font-size: 26px !important; }
+body.projector-mode .wc-waiting { font-size: 26px !important; }
+body.projector-mode .word-chip { font-size: 20px !important; }
+body.projector-mode::after { opacity: 0 !important; }
