@@ -15,6 +15,11 @@
   var answerCounts = [];
   var answersRevealed = false;
   var latestCounts = [];
+  var RECONNECT_DELAYS = [2000, 4000, 8000, 8000, 8000];
+  var reconnectAttempts = 0;
+  var reconnectTimeout = null;
+  var rejoinPending = false;
+  var sessionEnded = false;
 
   // ── Views ──────────────────────────────────────────────────────
   function showView(id) {
@@ -30,12 +35,43 @@
     var proto = location.protocol === 'https:' ? 'wss' : 'ws';
     var url = proto + '://' + location.host + '/ws/host/' + quizId;
     ws = new WebSocket(url);
-    ws.onopen = function () { console.log('Host WS connected'); };
+    ws.onopen = function () {
+      console.log('Host WS connected');
+      // Rejoin a live session for this quiz if we have one (page reload or
+      // reconnect after a drop); otherwise create a fresh room.
+      var storedRoom = sessionStorage.getItem('quizlab_host_room');
+      var storedQuiz = sessionStorage.getItem('quizlab_host_quiz');
+      if (storedRoom && String(storedQuiz) === String(quizId)) {
+        rejoinPending = true;
+        send({ type: 'host_rejoin', room_code: storedRoom });
+      } else {
+        send({ type: 'create_session' });
+      }
+    };
     ws.onmessage = function (e) {
       try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
     };
-    ws.onclose = function () { console.log('Host WS closed'); };
+    ws.onclose = function () {
+      console.log('Host WS closed');
+      scheduleReconnect();
+    };
     ws.onerror = function (e) { console.error('Host WS error', e); };
+  }
+
+  function scheduleReconnect() {
+    if (sessionEnded || reconnectAttempts >= 5) return;
+    var delay = RECONNECT_DELAYS[reconnectAttempts] || 8000;
+    reconnectAttempts++;
+    if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    reconnectTimeout = setTimeout(function () {
+      reconnectTimeout = null;
+      connect();
+    }, delay);
+  }
+
+  function clearHostSession() {
+    sessionStorage.removeItem('quizlab_host_room');
+    sessionStorage.removeItem('quizlab_host_quiz');
   }
 
   function send(obj) {
@@ -48,6 +84,7 @@
   function handleMessage(msg) {
     switch (msg.type) {
       case 'session_created': onSessionCreated(msg); break;
+      case 'host_rejoined':   onHostRejoined(msg);   break;
       case 'player_update':   onPlayerUpdate(msg);   break;
       case 'question':        onQuestion(msg);        break;
       case 'answer_counts':   onAnswerCounts(msg);    break;
@@ -56,7 +93,61 @@
       case 'ping':              send({ type: 'pong' }); break;
       case 'reaction':          onReaction(msg);        break;
       case 'wordcloud_update':  onWordcloudUpdate(msg); break;
-      case 'error':           alert('Error: ' + msg.message); break;
+      case 'error':           onError(msg);           break;
+    }
+  }
+
+  function onError(msg) {
+    if (rejoinPending) {
+      // The stored room is gone (server restart, session expired): fall back
+      // to creating a brand-new session on the same socket.
+      rejoinPending = false;
+      clearHostSession();
+      send({ type: 'create_session' });
+      return;
+    }
+    alert('Error: ' + msg.message);
+  }
+
+  function onHostRejoined(msg) {
+    rejoinPending = false;
+    reconnectAttempts = 0;
+    roomCode = msg.room_code;
+    sessionStorage.setItem('quizlab_host_room', roomCode);
+    sessionStorage.setItem('quizlab_host_quiz', String(quizId));
+
+    if (msg.state === 'lobby' || !msg.question) {
+      onSessionCreated({ room_code: msg.room_code, quiz_name: msg.quiz_name });
+      onPlayerUpdate({
+        players: msg.player_list || [],
+        count: (msg.player_list || []).length
+      });
+      return;
+    }
+
+    var qd = msg.question;
+    if (msg.state === 'question') {
+      if (msg.phase === 'reading') {
+        qd.read_time = msg.read_time_remaining || 0;
+      } else {
+        qd.read_time = 0;
+        qd.time_limit = msg.answer_time_remaining || 0;
+      }
+      onQuestion(qd);
+      latestCounts = msg.answer_counts || [];
+      if (qd.question_type === 'wordcloud' && msg.words) {
+        onWordcloudUpdate({ words: msg.words });
+      }
+    } else if (msg.state === 'reveal') {
+      qd.read_time = 0;
+      onQuestion(qd);                        // rebuild layout + answer tiles
+      latestCounts = msg.answer_counts || [];
+      if (msg.reveal) onReveal(msg.reveal);  // clears timer, paints reveal state
+      revealSent = true;
+      answersRevealed = true;
+      updateChart(latestCounts);
+      var tc = document.getElementById('timer-container');
+      if (tc) tc.style.visibility = 'hidden';
     }
   }
 
@@ -87,6 +178,10 @@
 
   function onSessionCreated(msg) {
     roomCode = msg.room_code;
+    rejoinPending = false;
+    reconnectAttempts = 0;
+    sessionStorage.setItem('quizlab_host_room', roomCode);
+    sessionStorage.setItem('quizlab_host_quiz', String(quizId));
     showView('lobby');
     document.getElementById('room-code-display').textContent = roomCode;
     document.getElementById('qr-img').src = '/qr/' + roomCode;
@@ -346,6 +441,8 @@
   function onGameEnd(msg) {
     clearTimer();
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
+    sessionEnded = true;
+    clearHostSession();
     showView('final');
     renderFinalLeaderboard(msg.leaderboard || []);
 
@@ -521,6 +618,8 @@
   };
 
   function showStoppedLeaderboard(data) {
+    sessionEnded = true;
+    clearHostSession();
     var lb = data.leaderboard || [];
     var qAnswered = data.questions_answered || 0;
     var qTotal = data.total_questions || 0;

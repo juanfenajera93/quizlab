@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import random
 import string
@@ -8,12 +9,16 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from fastapi import WebSocket
 
+logger = logging.getLogger("quizlab.game")
+
 
 class Player:
-    def __init__(self, player_id: str, nickname: str, websocket: WebSocket):
+    def __init__(self, player_id: str, nickname: str, websocket: WebSocket,
+                 room_code: str = ""):
         self.player_id = player_id
         self.nickname = nickname
         self.websocket = websocket
+        self.room_code = room_code
         self.score = 0
         self.answers: Dict[int, Any] = {}        # final locked answers
         self.selections: Dict[int, Any] = {}     # live selections (ms/order)
@@ -42,6 +47,12 @@ class GameSession:
         self.analytics_persisted: bool = False
         # Word cloud answers: {question_index: {player_id: text}}
         self.wordcloud_answers: Dict[int, Dict[str, str]] = {}
+        # Question indices already revealed (guards against double-scoring)
+        self.revealed_questions: set = set()
+
+    def touch(self):
+        """Mark the session active so the cleanup loop doesn't collect it."""
+        self.last_activity = datetime.utcnow()
 
     @property
     def questions(self) -> List[dict]:
@@ -177,8 +188,11 @@ class GameManager:
             return None
 
         player_id = str(uuid.uuid4())
-        session.players[player_id] = Player(player_id, nickname, websocket)
-        session.last_activity = datetime.utcnow()
+        session.players[player_id] = Player(player_id, nickname, websocket,
+                                            session.room_code)
+        session.touch()
+        logger.info("room %s: player joined %r (%s)",
+                    session.room_code, nickname, player_id)
 
         player_list = session.connected_player_list()
         await self._broadcast_players(session, {
@@ -220,11 +234,9 @@ class GameManager:
         q_type = q.get("question_type", "mc")
 
         # For "order" type: shuffle the options, store correct ordering
-        send_options = options[:]
         if q_type == "order" and len(options) > 1:
             shuffled_indices = list(range(len(options)))
             random.shuffle(shuffled_indices)
-            send_options = [options[i] for i in shuffled_indices]
             # correct_ordering: the sequence of shuffled-array indices that gives original order
             # i.e., where should shuffled[i] go? → argsort of shuffled_indices
             argsort = [0] * len(shuffled_indices)
@@ -232,27 +244,18 @@ class GameManager:
                 argsort[shuf_pos] = orig_pos
             # Player submits: send_options in their chosen order as indices into send_options
             # Correct submission = the permutation that restores original order
-            # Simplest: correct_ordering = the sorted permutation
-            # Player sends [idx0, idx1, ...] meaning "item at idx0 is position 0, etc."
-            # We store: what the player should submit to get full score
             # Since send_options[i] = options[shuffled_indices[i]],
             # the correct order of send_options is argsort of shuffled_indices
             session.order_correct[qi] = argsort
         elif q_type == "order":
             session.order_correct[qi] = list(range(len(options)))
 
-        msg = {
-            "type": "question",
-            "id": qi,
-            "text": q["text"],
-            "image_url": q.get("image_url") or "",
-            "options": send_options,
-            "time_limit": q.get("time_limit", 20),
-            "read_time": session.read_time,
-            "number": qi + 1,
-            "total": len(session.questions),
-            "question_type": q_type,
-        }
+        # _question_payload reconstructs the shuffled order from order_correct,
+        # so the live message and the rejoin message share one shape
+        msg = self._question_payload(session)
+        session.touch()
+        logger.info("room %s: question %d/%d started (%s)",
+                    session.room_code, qi + 1, len(session.questions), q_type)
         await self._broadcast_players(session, msg)
         await self._send_host(session, msg)
 
@@ -281,6 +284,7 @@ class GameManager:
         if q_type in ("ms", "order"):
             return
 
+        session.touch()
         player.answers[question_id] = answer_index
         player.confirmed.add(question_id)
 
@@ -315,6 +319,7 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
+        session.touch()
         player.selections[question_id] = selections
 
         # Rebuild answer_counts from all players' current selections
@@ -349,6 +354,7 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
+        session.touch()
         sel = player.selections.get(question_id, [])
         player.answers[question_id] = sel
         player.confirmed.add(question_id)
@@ -376,6 +382,7 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
+        session.touch()
         player.selections[question_id] = ordering
         # Auto-update answers (will be used at reveal)
         player.answers[question_id] = ordering
@@ -408,13 +415,23 @@ class GameManager:
         if not q:
             return
 
+        qi = session.current_question_index
+        session.touch()
+
+        if qi in session.revealed_questions:
+            # Duplicate reveal (double-click, second host tab, replay): never
+            # re-score. Resend the already-computed payload to the host only.
+            logger.warning("room %s: duplicate reveal for question %d blocked",
+                           session.room_code, qi + 1)
+            await self._send_host(session, self._build_host_reveal(session))
+            return
+        session.revealed_questions.add(qi)
+
         session.state = "reveal"
         q_type = q.get("question_type", "mc")
         correct_json = q.get("correct_json", "")
         time_limit = q.get("time_limit", 20)
         base_points = q.get("points", 100)
-
-        qi = session.current_question_index
 
         # For order type: use the shuffled-correct ordering stored in session
         if q_type == "order":
@@ -437,69 +454,13 @@ class GameManager:
 
         leaderboard = session.get_leaderboard()
 
-        # Determine correct_index for host display (mc/tf only)
-        correct_index = -1
-        if q_type in ("mc", "tf"):
-            try:
-                correct_index = int(correct_json) if correct_json != "" else 0
-            except (ValueError, TypeError):
-                correct_index = 0
-
         for player in session.players.values():
-            if not player.connected:
-                continue
-            answer = player.answers.get(qi)
-            if answer is None:
-                answer = player.selections.get(qi)
+            reveal_msg = self._build_player_reveal(session, player, leaderboard)
+            await self._send_to_player(player, reveal_msg)
 
-            time_taken = player.answer_times.get(qi, time_limit)
-            pts_earned, is_correct = _score_answer(
-                q_type, scoring_correct_json, answer if answer is not None else -1,
-                time_taken, time_limit, base_points
-            )
-
-            rank = next(
-                (e["rank"] for e in leaderboard if e["player_id"] == player.player_id),
-                len(leaderboard),
-            )
-
-            reveal_msg = {
-                "type": "reveal",
-                "question_type": q_type,
-                "correct_json": scoring_correct_json,
-                "correct_index": correct_index,
-                "your_answer": answer if (answer is not None and not isinstance(answer, str)) else -1,
-                "is_correct": is_correct,
-                "points_earned": pts_earned,
-                "total_score": player.score,
-                "rank": rank,
-                "total_players": len([p for p in session.players.values() if p.connected]),
-                "leaderboard": leaderboard[:5],
-                "no_points": base_points == 0 or q_type == "wordcloud",
-            }
-            if q_type == "wordcloud":
-                reveal_msg["your_text"] = player.answers.get(qi, "")
-
-            try:
-                await player.websocket.send_json(reveal_msg)
-            except Exception:
-                player.connected = False
-
-        host_reveal: dict = {
-            "type": "reveal",
-            "question_type": q_type,
-            "correct_index": correct_index,
-            "correct_json": scoring_correct_json,
-            "leaderboard": leaderboard[:5],
-        }
-        if q_type == "wordcloud":
-            freq_dict: Dict[str, int] = {}
-            for txt in session.wordcloud_answers.get(qi, {}).values():
-                key = txt.lower().strip()
-                if key:
-                    freq_dict[key] = freq_dict.get(key, 0) + 1
-            host_reveal["words"] = freq_dict
-        await self._send_host(session, host_reveal)
+        await self._send_host(session, self._build_host_reveal(session))
+        logger.info("room %s: question %d revealed (%s)",
+                    session.room_code, qi + 1, q_type)
 
     async def next_question(self, room_code: str):
         session = self.get_session(room_code)
@@ -517,17 +478,29 @@ class GameManager:
             return
         session.analytics_data = self.compile_analytics(session)
         session.state = "ended"
+        session.touch()
         leaderboard = session.get_leaderboard()
+        logger.info("room %s: game ended (%d players, %d/%d questions)",
+                    session.room_code, len(session.players),
+                    session.current_question_index + 1, len(session.questions))
         msg = {"type": "game_end", "leaderboard": leaderboard}
         await self._broadcast_players(session, msg)
         await self._send_host(session, msg)
 
-    async def remove_player(self, room_code: str, player_id: str):
+    async def remove_player(self, room_code: str, player_id: str,
+                            websocket: Optional[WebSocket] = None):
         session = self.get_session(room_code)
         if not session:
             return
         player = session.players.get(player_id)
         if player:
+            if websocket is not None and player.websocket is not websocket:
+                # A stale socket closed after the player already rejoined on a
+                # new one — don't mark the live connection disconnected.
+                return
+            if player.connected:
+                logger.info("room %s: player %r disconnected (ws closed)",
+                            session.room_code, player.nickname)
             player.connected = False
         player_list = session.connected_player_list()
         await self._send_host(session, {
@@ -536,13 +509,36 @@ class GameManager:
             "players": player_list,
         })
 
+    async def _send_to_player(self, player: Player, message: dict) -> bool:
+        """Send to a player regardless of the `connected` flag.
+
+        `connected` tracks deliverability for UI (lobby counts), but must never
+        silently block game-state delivery: a player marked disconnected by one
+        failed send may still have a receivable socket, or the flag may simply
+        be stale. On failure, close the server side of the socket so the
+        browser's onclose fires and its reconnect+rejoin cycle starts.
+        """
+        try:
+            await player.websocket.send_json(message)
+            if not player.connected:
+                logger.info("room %s: player %r reconnected (send ok)",
+                            player.room_code, player.nickname)
+            player.connected = True
+            return True
+        except Exception:
+            if player.connected:
+                logger.info("room %s: player %r marked disconnected (send failed)",
+                            player.room_code, player.nickname)
+            player.connected = False
+            try:
+                await player.websocket.close()
+            except Exception:
+                pass
+            return False
+
     async def _broadcast_players(self, session: GameSession, message: dict):
         for player in session.players.values():
-            if player.connected:
-                try:
-                    await player.websocket.send_json(message)
-                except Exception:
-                    player.connected = False
+            await self._send_to_player(player, message)
 
     async def _send_host(self, session: GameSession, message: dict):
         if session.host_websocket:
@@ -550,6 +546,155 @@ class GameManager:
                 await session.host_websocket.send_json(message)
             except Exception:
                 pass
+
+    def _build_player_reveal(self, session: GameSession, player: Player,
+                             leaderboard: Optional[List[dict]] = None) -> dict:
+        """Build the per-player reveal message. Assumes scores are already
+        applied for the current question (i.e. reveal_answer has run)."""
+        q = session.current_question or {}
+        qi = session.current_question_index
+        q_type = q.get("question_type", "mc")
+        correct_json = q.get("correct_json", "")
+        time_limit = q.get("time_limit", 20)
+        base_points = q.get("points", 100)
+
+        if q_type == "order":
+            scoring_correct_json = json.dumps(session.order_correct.get(qi, []))
+        else:
+            scoring_correct_json = correct_json
+
+        correct_index = -1
+        if q_type in ("mc", "tf"):
+            try:
+                correct_index = int(correct_json) if correct_json != "" else 0
+            except (ValueError, TypeError):
+                correct_index = 0
+
+        if leaderboard is None:
+            leaderboard = session.get_leaderboard()
+
+        answer = player.answers.get(qi)
+        if answer is None:
+            answer = player.selections.get(qi)
+
+        time_taken = player.answer_times.get(qi, time_limit)
+        pts_earned, is_correct = _score_answer(
+            q_type, scoring_correct_json, answer if answer is not None else -1,
+            time_taken, time_limit, base_points
+        )
+
+        rank = next(
+            (e["rank"] for e in leaderboard if e["player_id"] == player.player_id),
+            len(leaderboard),
+        )
+
+        reveal_msg = {
+            "type": "reveal",
+            "question_type": q_type,
+            "correct_json": scoring_correct_json,
+            "correct_index": correct_index,
+            "your_answer": answer if (answer is not None and not isinstance(answer, str)) else -1,
+            "is_correct": is_correct,
+            "points_earned": pts_earned,
+            "total_score": player.score,
+            "rank": rank,
+            "total_players": len([p for p in session.players.values() if p.connected]),
+            "leaderboard": leaderboard[:5],
+            "no_points": base_points == 0 or q_type == "wordcloud",
+        }
+        if q_type == "wordcloud":
+            reveal_msg["your_text"] = player.answers.get(qi, "")
+        return reveal_msg
+
+    def _build_host_reveal(self, session: GameSession) -> dict:
+        """Build the host-side reveal message. Assumes scores are already
+        applied for the current question (i.e. reveal_answer has run)."""
+        q = session.current_question or {}
+        qi = session.current_question_index
+        q_type = q.get("question_type", "mc")
+        correct_json = q.get("correct_json", "")
+
+        if q_type == "order":
+            scoring_correct_json = json.dumps(session.order_correct.get(qi, []))
+        else:
+            scoring_correct_json = correct_json
+
+        correct_index = -1
+        if q_type in ("mc", "tf"):
+            try:
+                correct_index = int(correct_json) if correct_json != "" else 0
+            except (ValueError, TypeError):
+                correct_index = 0
+
+        host_reveal: dict = {
+            "type": "reveal",
+            "question_type": q_type,
+            "correct_index": correct_index,
+            "correct_json": scoring_correct_json,
+            "leaderboard": session.get_leaderboard()[:5],
+        }
+        if q_type == "wordcloud":
+            freq_dict: Dict[str, int] = {}
+            for txt in session.wordcloud_answers.get(qi, {}).values():
+                key = txt.lower().strip()
+                if key:
+                    freq_dict[key] = freq_dict.get(key, 0) + 1
+            host_reveal["words"] = freq_dict
+        return host_reveal
+
+    def _phase_info(self, session: GameSession) -> dict:
+        """Current phase and remaining time for the active question."""
+        q = session.current_question or {}
+        time_limit = q.get("time_limit", 20)
+        now = time.time()
+        phase = "answering"
+        read_remaining = 0.0
+        answer_remaining = float(time_limit)
+        if session.answer_phase_start_time:
+            if now < session.answer_phase_start_time:
+                phase = "reading"
+                read_remaining = session.answer_phase_start_time - now
+            else:
+                answer_remaining = max(
+                    0.0, time_limit - (now - session.answer_phase_start_time)
+                )
+        return {
+            "phase": phase,
+            "read_time_remaining": round(read_remaining, 1),
+            "answer_time_remaining": round(answer_remaining, 1),
+        }
+
+    def _question_payload(self, session: GameSession) -> Optional[dict]:
+        """Build the same message shape as _send_question, reconstructing the
+        shuffled option order for "order" questions from order_correct."""
+        q = session.current_question
+        if not q:
+            return None
+        qi = session.current_question_index
+        q_type = q.get("question_type", "mc")
+        options = q.get("options", [])
+
+        send_options = options[:]
+        if q_type == "order":
+            perm = session.order_correct.get(qi)
+            # perm[original_index] = position in the shuffled list sent to players
+            if perm and len(perm) == len(options):
+                send_options = [""] * len(options)
+                for orig_idx, shuf_pos in enumerate(perm):
+                    send_options[shuf_pos] = options[orig_idx]
+
+        return {
+            "type": "question",
+            "id": qi,
+            "text": q["text"],
+            "image_url": q.get("image_url") or "",
+            "options": send_options,
+            "time_limit": q.get("time_limit", 20),
+            "read_time": session.read_time,
+            "number": qi + 1,
+            "total": len(session.questions),
+            "question_type": q_type,
+        }
 
     async def rejoin_player(self, room_code: str, player_id: str, nickname: str,
                             websocket: WebSocket) -> dict:
@@ -567,8 +712,11 @@ class GameManager:
             return {"ok": False, "reason": "player_not_found"}
         player.websocket = websocket
         player.connected = True
-        session.last_activity = datetime.utcnow()
-        return {
+        session.touch()
+        logger.info("room %s: player rejoined %r (%s, state=%s)",
+                    session.room_code, player.nickname, player.player_id,
+                    session.state)
+        result = {
             "ok": True,
             "player_id": player.player_id,
             "state": session.state,
@@ -576,11 +724,70 @@ class GameManager:
             "question_index": session.current_question_index,
         }
 
+        qi = session.current_question_index
+        if session.state == "question":
+            payload = self._question_payload(session)
+            if payload:
+                result.update(self._phase_info(session))
+                result.update({
+                    "question": payload,
+                    "already_answered": qi in player.confirmed or qi in player.answers,
+                })
+        elif session.state == "reveal":
+            result["reveal"] = self._build_player_reveal(session, player)
+
+        return result
+
+    async def rejoin_host(self, room_code: str, websocket: WebSocket) -> dict:
+        """Re-attach a host websocket to a live session and return a full
+        host-state-sync payload, mirroring rejoin_player."""
+        session = self.get_session(room_code)
+        if not session or session.state == "ended":
+            return {"ok": False, "reason": "room_not_found"}
+
+        session.host_websocket = websocket
+        session.touch()
+        logger.info("room %s: host rejoined (state=%s)",
+                    session.room_code, session.state)
+
+        result: dict = {
+            "ok": True,
+            "room_code": session.room_code,
+            "quiz_name": session.quiz_data.get("name", ""),
+            "question_count": len(session.questions),
+            "state": session.state,
+            "question_index": session.current_question_index,
+            "player_list": session.connected_player_list(),
+            "leaderboard": session.get_leaderboard(),
+        }
+
+        if session.state in ("question", "reveal"):
+            payload = self._question_payload(session)
+            if payload:
+                qi = session.current_question_index
+                result["question"] = payload
+                result["answer_counts"] = session.answer_counts
+                if session.state == "question":
+                    result.update(self._phase_info(session))
+                    if payload["question_type"] == "wordcloud":
+                        # live word feed (reactions are transient — no state)
+                        result["words"] = list(
+                            session.wordcloud_answers.get(qi, {}).values()
+                        )
+                else:
+                    result["reveal"] = self._build_host_reveal(session)
+
+        return result
+
     async def end_session(self, room_code: str):
         session = self.get_session(room_code)
         if not session:
             return
         session.state = "ended"
+        session.touch()
+        logger.info("room %s: session stopped by host at question %d/%d",
+                    session.room_code, session.current_question_index + 1,
+                    len(session.questions))
         await self._broadcast_players(session, {
             "type": "game_ended",
             "message": "El quiz ha sido detenido por el profesor.",
@@ -592,10 +799,7 @@ class GameManager:
                 continue
             for player in session.players.values():
                 if player.connected:
-                    try:
-                        await player.websocket.send_json({"type": "ping"})
-                    except Exception:
-                        player.connected = False
+                    await self._send_to_player(player, {"type": "ping"})
             if session.host_websocket:
                 try:
                     await session.host_websocket.send_json({"type": "ping"})
@@ -706,6 +910,7 @@ class GameManager:
         if not text:
             return
 
+        session.touch()
         session.wordcloud_answers.setdefault(question_id, {})[player_id] = text
         player.answers[question_id] = text
         player.confirmed.add(question_id)
@@ -730,6 +935,7 @@ class GameManager:
         player = session.players.get(player_id)
         if not player:
             return
+        session.touch()
         await self._send_host(session, {
             "type": "reaction",
             "emoji": emoji,
@@ -744,6 +950,10 @@ class GameManager:
             if s.last_activity < cutoff
         ]
         for code in to_remove:
+            s = self.sessions[code]
+            logger.info("room %s: garbage-collected (inactive since %s, state=%s)",
+                        code, s.last_activity.isoformat(timespec="seconds"),
+                        s.state)
             del self.sessions[code]
 
 

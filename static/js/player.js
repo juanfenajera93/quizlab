@@ -128,7 +128,21 @@
       case 'game_ended':    onGameEnded(msg);       break;
       case 'rejoined':      onRejoined(msg);        break;
       case 'ping':          send({ type: 'pong' }); break;
-      case 'error':         showError(msg.message); break;
+      case 'error':         onError(msg);           break;
+    }
+  }
+
+  function onError(msg) {
+    hideReconnectBanner();
+    if (msg.message === 'room_not_found' || msg.message === 'player_not_found') {
+      // Rejected rejoin: the session is gone — clear it so reconnect stops looping
+      sessionStorage.removeItem('quizlab_room');
+      sessionStorage.removeItem('quizlab_nickname');
+      sessionStorage.removeItem('quizlab_player_id');
+      showView('join-view');
+      showError('La sesión ya no está disponible.');
+    } else {
+      showError(msg.message);
     }
   }
 
@@ -698,6 +712,10 @@
     hideReconnectBanner();
     reconnectAttempts = 0;
     playerScore = msg.score || 0;
+    if (msg.player_id) {
+      playerId = msg.player_id;
+      sessionStorage.setItem('quizlab_player_id', msg.player_id);
+    }
     if (ws) {
       ws.onclose = function () {
         if (sessionStorage.getItem('quizlab_room')) {
@@ -707,12 +725,34 @@
       };
     }
     var state = msg.state;
+    var emojiBar = document.getElementById('emoji-bar');
+    if (emojiBar) emojiBar.style.display = (state === 'ended') ? 'none' : 'flex';
     if (state === 'lobby') {
       showView('waiting-view');
+    } else if (state === 'question' && msg.question) {
+      var qData = msg.question;
+      if (msg.phase === 'reading') {
+        qData.read_time = msg.read_time_remaining || 0;
+      } else {
+        qData.read_time = 0;
+        qData.time_limit = msg.answer_time_remaining || 0;
+      }
+      onQuestion(qData);
+      if (msg.already_answered) {
+        answered = true;
+        msConfirmed = true;
+        document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
+        var confirmBtn = document.getElementById('ms-confirm-btn');
+        if (confirmBtn) confirmBtn.style.display = 'none';
+        document.getElementById('answered-overlay').classList.add('show');
+      }
     } else if (state === 'question') {
+      // Fallback if the server sent no question payload
       answered = true;
       showView('question-view');
       document.getElementById('answered-overlay').classList.add('show');
+    } else if (state === 'reveal' && msg.reveal) {
+      onReveal(msg.reveal);
     } else if (state === 'reveal') {
       showReveal();
     } else if (state === 'ended') {
@@ -914,6 +954,14 @@
         reconnect();
       }
     });
+
+    // After a page reload mid-game, rejoin automatically instead of showing
+    // the join form (the join path rejects rooms already in progress)
+    if (sessionStorage.getItem('quizlab_room') &&
+        sessionStorage.getItem('quizlab_player_id')) {
+      reconnectAttempts = 0;
+      reconnect();
+    }
   });
 
 })();

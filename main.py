@@ -2,6 +2,7 @@ import asyncio
 import csv
 import io
 import json
+import logging
 import os
 import uuid
 from datetime import datetime
@@ -38,6 +39,12 @@ from models import Question, Quiz, QuizSession, SessionResult, QuestionStat
 
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("quizlab")
+
 app = FastAPI(title="QuizLab")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "quizlab-secret-change-me")
@@ -56,8 +63,7 @@ templates = Jinja2Templates(directory="templates")
 async def on_startup():
     create_db_and_tables()
     if _is_postgres:
-        import logging
-        logging.warning(
+        logger.warning(
             "QuizLab is running in PostgreSQL mode. "
             "Image uploads are saved to the local filesystem and will NOT persist "
             "between Render deploys. Migrate uploads to Supabase Storage for persistence."
@@ -117,9 +123,10 @@ async def _persist_session(room_code: str):
                 ))
             db.commit()
             gs.analytics_persisted = True
-    except Exception as exc:
-        import logging
-        logging.error(f"Failed to persist session {room_code}: {exc}")
+            logger.info("room %s: session persisted to history (session_id=%s, %d players)",
+                        room_code, qs.id, data["student_count"])
+    except Exception:
+        logger.exception("room %s: failed to persist session to history", room_code)
 
 
 def _require_admin(request: Request):
@@ -674,36 +681,61 @@ async def ws_host(websocket: WebSocket, quiz_id: int, db: Session = Depends(get_
         ],
     }
 
-    room_code = game_manager.create_session(quiz_data, websocket)
-
-    await websocket.send_json(
-        {
-            "type": "session_created",
-            "room_code": room_code,
-            "quiz_name": quiz.name,
-            "question_count": len(questions),
-        }
-    )
+    # The first client message declares intent: "create_session" starts a new
+    # room (the old implicit behavior), "host_rejoin" re-attaches to a live one.
+    room_code: str | None = None
 
     try:
         while True:
             data = await websocket.receive_json()
             t = data.get("type")
-            if t == "start_game":
+
+            if t == "create_session" and room_code is None:
+                room_code = game_manager.create_session(quiz_data, websocket)
+                logger.info("room %s created (quiz_id=%s, %r, %d questions)",
+                            room_code, quiz.id, quiz.name, len(questions))
+                await websocket.send_json({
+                    "type": "session_created",
+                    "room_code": room_code,
+                    "quiz_name": quiz.name,
+                    "question_count": len(questions),
+                })
+
+            elif t == "host_rejoin" and room_code is None:
+                rc = data.get("room_code", "").strip().upper()
+                result = await game_manager.rejoin_host(rc, websocket)
+                if result.get("ok"):
+                    room_code = result["room_code"]
+                    del result["ok"]
+                    result["type"] = "host_rejoined"
+                    await websocket.send_json(result)
+                else:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": result.get("reason", "room_not_found"),
+                    })
+
+            elif t == "start_game" and room_code:
                 await game_manager.start_game(room_code)
-            elif t == "reveal":
+            elif t == "reveal" and room_code:
                 await game_manager.reveal_answer(room_code)
-            elif t == "next_question":
+            elif t == "next_question" and room_code:
                 await game_manager.next_question(room_code)
-            elif t == "end_game":
+            elif t == "end_game" and room_code:
                 await game_manager.end_game(room_code)
-            _s = game_manager.get_session(room_code)
-            if _s and _s.state == "ended" and not _s.analytics_persisted:
-                await _persist_session(room_code)
+
+            if room_code:
+                _s = game_manager.get_session(room_code)
+                if _s and _s.state == "ended" and not _s.analytics_persisted:
+                    await _persist_session(room_code)
     except WebSocketDisconnect:
-        session = game_manager.get_session(room_code)
-        if session:
-            session.host_websocket = None
+        if room_code:
+            session = game_manager.get_session(room_code)
+            # Only detach if this socket is still the active one — a stale
+            # close after a host rejoin must not sever the new connection.
+            if session and session.host_websocket is websocket:
+                session.host_websocket = None
+                logger.info("room %s: host websocket disconnected", room_code)
 
 
 # ─── WebSocket: Player ───────────────────────────────────────────────────────
@@ -808,18 +840,26 @@ async def ws_player(websocket: WebSocket):
                 if result["ok"]:
                     room_code = rc
                     player_id = result["player_id"]
-                    await websocket.send_json({
+                    rejoined_msg = {
                         "type": "rejoined",
+                        "player_id": result["player_id"],
                         "state": result["state"],
                         "score": result["score"],
                         "question_index": result["question_index"],
-                    })
+                    }
+                    for key in ("question", "phase", "read_time_remaining",
+                                "answer_time_remaining", "already_answered", "reveal"):
+                        if key in result:
+                            rejoined_msg[key] = result[key]
+                    await websocket.send_json(rejoined_msg)
                 else:
                     await websocket.send_json({"type": "error", "message": result["reason"]})
 
     except WebSocketDisconnect:
         if player_id and room_code:
-            await game_manager.remove_player(room_code, player_id)
+            await game_manager.remove_player(room_code, player_id, websocket)
     except Exception:
+        logger.exception("room %s: player websocket error (player_id=%s)",
+                         room_code, player_id)
         if player_id and room_code:
-            await game_manager.remove_player(room_code, player_id)
+            await game_manager.remove_player(room_code, player_id, websocket)
