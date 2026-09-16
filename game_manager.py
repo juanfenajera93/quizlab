@@ -174,6 +174,19 @@ class GameSession:
             if p.connected
         ]
 
+    def player_list(self) -> List[dict]:
+        """Every player in the room, connected or not. A phone that locked or
+        lost signal stays listed (flagged offline) until the host kicks it or
+        the session ends — it will come back on its own via rejoin."""
+        return [
+            {"nickname": p.nickname, "player_id": p.player_id, "team": p.team,
+             "connected": p.connected}
+            for p in self.players.values()
+        ]
+
+    def connected_count(self) -> int:
+        return sum(1 for p in self.players.values() if p.connected)
+
 
 def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
                   base_points, scoring_mode="speed"):
@@ -271,6 +284,24 @@ class GameManager:
         if not session or session.state == "ended":
             return None
 
+        # Same name, socket gone (phone locked, tab killed, re-scanned the QR
+        # in a new tab): hand the existing seat back instead of creating a
+        # ghost duplicate. The host's list never shows the name twice and the
+        # student keeps their team/roster identity.
+        existing = next(
+            (p for p in session.players.values()
+             if p.nickname.lower() == nickname.lower() and not p.connected),
+            None,
+        )
+        if existing is not None:
+            existing.websocket = websocket
+            existing.connected = True
+            session.touch()
+            logger.info("room %s: player %r reclaimed seat %s via fresh join",
+                        session.room_code, existing.nickname, existing.player_id)
+            await self.notify_player_list(session)
+            return existing.player_id
+
         player_id = str(uuid.uuid4())
         player = Player(player_id, nickname, websocket, session.room_code)
         if session.roster:
@@ -294,18 +325,27 @@ class GameManager:
                     session.room_code, nickname, player_id,
                     player.team, player.student_id)
 
-        player_list = session.connected_player_list()
-        await self._broadcast_players(session, {
-            "type": "player_update",
-            "player_count": len(player_list),
-            "player_list": player_list,
-        })
+        await self.notify_player_list(session)
+        return player_id
+
+    async def notify_player_list(self, session: GameSession,
+                                 include_players: bool = True):
+        """Push the current roster (with online flags) to the host, and — in
+        the lobby — to every phone's waiting-room list."""
+        players = session.player_list()
         await self._send_host(session, {
             "type": "player_update",
-            "count": len(player_list),
-            "players": player_list,
+            "count": len(players),
+            "connected": session.connected_count(),
+            "players": players,
+            "team_count": session.team_count,
         })
-        return player_id
+        if include_players and session.state == "lobby":
+            await self._broadcast_players(session, {
+                "type": "player_update",
+                "player_count": len(players),
+                "player_list": players,
+            })
 
     async def set_teams(self, room_code: str, count: int):
         """Lobby-only: turn team mode on (2-4 teams) or off (0). Reassigns
@@ -329,12 +369,7 @@ class GameManager:
                               if p.team is not None else None),
                 "team_count": session.team_count,
             })
-        await self._send_host(session, {
-            "type": "player_update",
-            "count": len(session.connected_player_list()),
-            "players": session.connected_player_list(),
-            "team_count": session.team_count,
-        })
+        await self.notify_player_list(session)
 
     def set_class(self, room_code: str, class_id: Optional[int],
                   class_name: Optional[str], roster: Optional[List[dict]]):
@@ -379,17 +414,7 @@ class GameManager:
             await player.websocket.close()
         except Exception:
             pass
-        player_list = session.connected_player_list()
-        await self._broadcast_players(session, {
-            "type": "player_update",
-            "player_count": len(player_list),
-            "player_list": player_list,
-        })
-        await self._send_host(session, {
-            "type": "player_update",
-            "count": len(player_list),
-            "players": player_list,
-        })
+        await self.notify_player_list(session)
 
     async def start_game(self, room_code: str):
         session = self.get_session(room_code)
@@ -661,7 +686,7 @@ class GameManager:
 
         leaderboard = session.get_leaderboard()
 
-        for player in session.players.values():
+        for player in list(session.players.values()):
             reveal_msg = self._build_player_reveal(session, player, leaderboard)
             await self._send_to_player(player, reveal_msg)
 
@@ -766,7 +791,7 @@ class GameManager:
         host_msg: dict = {"type": "game_end", "leaderboard": leaderboard}
         if teams:
             host_msg["teams"] = teams
-        for player in session.players.values():
+        for player in list(session.players.values()):
             player_msg = dict(host_msg)
             player_msg["review"] = self._build_review(session, player)
             if teams is not None:
@@ -789,12 +814,9 @@ class GameManager:
                 logger.info("room %s: player %r disconnected (ws closed)",
                             session.room_code, player.nickname)
             player.connected = False
-        player_list = session.connected_player_list()
-        await self._send_host(session, {
-            "type": "player_update",
-            "count": len(player_list),
-            "players": player_list,
-        })
+        # The player stays in session.players: the host sees them flagged
+        # offline, and their seat is waiting for the rejoin.
+        await self.notify_player_list(session)
 
     async def _send_to_player(self, player: Player, message: dict) -> bool:
         """Send to a player regardless of the `connected` flag.
@@ -824,7 +846,10 @@ class GameManager:
             return False
 
     async def _broadcast_players(self, session: GameSession, message: dict):
-        for player in session.players.values():
+        # Snapshot: every send is an await point, and a join/kick landing
+        # mid-loop would otherwise raise "dict changed size during iteration"
+        # and abort the broadcast for everyone after it.
+        for player in list(session.players.values()):
             await self._send_to_player(player, message)
 
     async def _send_host(self, session: GameSession, message: dict):
@@ -1009,12 +1034,18 @@ class GameManager:
             )
         if not player:
             return {"ok": False, "reason": "player_not_found"}
+        was_connected = player.connected
         player.websocket = websocket
         player.connected = True
         session.touch()
-        logger.info("room %s: player rejoined %r (%s, state=%s)",
+        logger.info("room %s: player rejoined %r (%s, state=%s, was_connected=%s)",
                     session.room_code, player.nickname, player.player_id,
-                    session.state)
+                    session.state, was_connected)
+        # NOTE: the caller must follow up with notify_player_list() once the
+        # "rejoined" message has been sent, so the host (and, in the lobby,
+        # the other phones) learn the seat is live again. Without that the
+        # rejoin only updated server-side state and the host's list stayed
+        # stale until some unrelated join/leave.
         result = {
             "ok": True,
             "player_id": player.player_id,
@@ -1025,6 +1056,7 @@ class GameManager:
             "team_name": (TEAM_NAMES[player.team % len(TEAM_NAMES)]
                           if player.team is not None else None),
             "streak": player.streak,
+            "player_list": session.player_list(),
         }
 
         qi = session.current_question_index
@@ -1060,7 +1092,8 @@ class GameManager:
             "question_count": len(session.questions),
             "state": session.state,
             "question_index": session.current_question_index,
-            "player_list": session.connected_player_list(),
+            "player_list": session.player_list(),
+            "connected": session.connected_count(),
             "leaderboard": session.get_leaderboard(),
             "locked": session.locked,
             "team_count": session.team_count,
@@ -1106,14 +1139,21 @@ class GameManager:
         for session in list(self.sessions.values()):
             if session.state == "ended":
                 continue
-            for player in session.players.values():
+            changed = False
+            for player in list(session.players.values()):
                 if player.connected:
-                    await self._send_to_player(player, {"type": "ping"})
+                    ok = await self._send_to_player(player, {"type": "ping"})
+                    if not ok:
+                        changed = True
             if session.host_websocket:
                 try:
                     await session.host_websocket.send_json({"type": "ping"})
                 except Exception:
                     pass
+            if changed:
+                # A heartbeat send failed: reflect the offline flag on the
+                # host right away instead of waiting for the socket's close.
+                await self.notify_player_list(session)
 
     def compile_analytics(self, session: GameSession) -> dict:
         question_stats = []

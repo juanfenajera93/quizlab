@@ -187,10 +187,7 @@
 
     if (msg.state === 'lobby' || !msg.question) {
       onSessionCreated({ room_code: msg.room_code, quiz_name: msg.quiz_name });
-      onPlayerUpdate({
-        players: msg.player_list || [],
-        count: (msg.player_list || []).length
-      });
+      onPlayerUpdate({ players: msg.player_list || [] });
       return;
     }
 
@@ -267,7 +264,8 @@
 
   function onPlayerUpdate(msg) {
     var players = msg.players || msg.player_list || [];
-    var count = msg.count || msg.player_count || players.length;
+    var count = players.length;
+    var offline = players.filter(function (p) { return p.connected === false; }).length;
     if (msg.team_count !== undefined) teamCount = msg.team_count || 0;
 
     var badge = document.getElementById('player-count-badge');
@@ -278,8 +276,12 @@
       chips.innerHTML = '';
       players.forEach(function (p) {
         var chip = document.createElement('div');
-        chip.className = 'player-chip kickable';
-        chip.title = '✕';
+        var isOffline = p.connected === false;
+        // Offline = the phone's socket dropped (screen lock, background tab,
+        // signal). The seat is kept and the chip is dimmed until they're
+        // back; the host can still click it to remove them for real.
+        chip.className = 'player-chip kickable' + (isOffline ? ' offline' : '');
+        chip.title = isOffline ? t('offline_hint') : '✕';
         if (p.team !== null && p.team !== undefined) {
           var dot = document.createElement('span');
           dot.className = 'team-dot';
@@ -300,9 +302,13 @@
     if (startBtn) {
       startBtn.disabled = count < 1;
       var hint = document.getElementById('start-hint');
-      if (hint) hint.textContent = count < 1
-        ? t('waiting_players')
-        : t('players_ready').replace('{n}', count);
+      if (hint) {
+        var text = count < 1
+          ? t('waiting_players')
+          : t('players_ready').replace('{n}', count);
+        if (offline > 0) text += ' · ' + t('offline_n').replace('{n}', offline);
+        hint.textContent = text;
+      }
     }
   }
 

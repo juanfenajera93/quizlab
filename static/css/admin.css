@@ -328,7 +328,8 @@
   right: 0;
   top: 0;
   height: 100vh;
-  width: 380px;
+  /* Wide enough for full option text; never wider than the viewport */
+  width: min(520px, 100vw);
   z-index: 100;
   background: var(--surface);
   border-left: 1px solid var(--border);
@@ -436,6 +437,37 @@
 }
 
 .option-row input { margin: 0; }
+
+.option-row {
+  align-items: flex-start;
+}
+
+.option-row .option-letter {
+  padding-top: 10px;
+}
+
+/* Option fields grow with their content (height set by autosizeTextarea);
+   the full text is always visible, nothing is clipped. */
+.option-row .option-textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  margin: 0;
+  padding: 8px 10px;
+  line-height: 1.35;
+  resize: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 14px;
+}
+
+.q-form-panel #q-text-input {
+  resize: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 
 .correct-select {
   display: flex;

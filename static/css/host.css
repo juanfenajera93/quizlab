@@ -12,15 +12,34 @@
 .view.active { display: flex; flex-direction: column; flex: 1; }
 
 /* ── Lobby ── */
+/* The theme + EN/ES toggles are fixed at the top-right of every page
+   (base.css: 2 × 40px buttons, 16px from the edge). Both host headers
+   reserve that strip so their right-aligned content never sits under them. */
+.lobby-header,
+.game-header {
+  padding-right: 128px;
+}
+
 .lobby-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 28px;
+  gap: 16px;
+  padding: 20px 128px 20px 28px;
   border-bottom: 1px solid var(--border);
 }
 
-.lobby-header .logo { font-size: 24px; }
+.lobby-header .logo { font-size: 24px; flex-shrink: 0; }
+
+/* Long quiz titles shrink and truncate instead of pushing into the toggles */
+#quiz-name-display {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .lobby-body {
   display: grid;
@@ -146,7 +165,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 28px;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 128px 14px 28px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
@@ -791,8 +812,20 @@ body:has(.host-wrap) #theme-toggle {
 }
 
 /* ── Kickable player chips + team dots ── */
-.player-chip.kickable { cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+.player-chip.kickable { cursor: pointer; transition: border-color 0.15s, color 0.15s, opacity 0.2s; }
 .player-chip.kickable:hover { border-color: var(--fire); color: var(--fire); }
+
+/* Phone temporarily unreachable (screen lock, background tab, no signal):
+   the seat is kept, the chip just dims until the rejoin lands. */
+.player-chip.offline {
+  opacity: 0.45;
+  border-style: dashed;
+}
+.player-chip.offline::after {
+  content: '⏳';
+  margin-left: 6px;
+  font-size: 0.85em;
+}
 
 .team-dot {
   display: inline-block;

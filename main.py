@@ -141,6 +141,23 @@ async def _persist_session(room_code: str):
         logger.exception("room %s: failed to persist session to history", room_code)
 
 
+def _rejoined_message(result: dict) -> dict:
+    """Shape the rejoin_player result into the "rejoined" client message."""
+    msg = {
+        "type": "rejoined",
+        "player_id": result["player_id"],
+        "state": result["state"],
+        "score": result["score"],
+        "question_index": result["question_index"],
+    }
+    for key in ("question", "phase", "read_time_remaining",
+                "answer_time_remaining", "already_answered", "reveal",
+                "team", "team_name", "streak", "player_list"):
+        if key in result:
+            msg[key] = result[key]
+    return msg
+
+
 def _require_admin(request: Request):
     if not request.session.get("admin"):
         raise HTTPException(status_code=302, headers={"Location": "/admin/login"})
@@ -1357,14 +1374,34 @@ async def ws_player(websocket: WebSocket):
                 if not session:
                     await websocket.send_json({"type": "error", "message": "Room not found"})
                     continue
+                if not nickname:
+                    await websocket.send_json({"type": "error", "message": "Nickname is required"})
+                    continue
+                # A student whose browser lost its stored identity (tab
+                # killed, new tab from a re-scanned QR) comes back through
+                # "join" with the same name. If that seat exists and its
+                # socket is gone, re-attach them instead of refusing —
+                # this works mid-game too, where a fresh join is rejected.
+                orphan = next(
+                    (p for p in session.players.values()
+                     if p.nickname.lower() == nickname.lower()
+                     and not p.connected),
+                    None,
+                )
+                if orphan is not None and session.state != "ended":
+                    result = await game_manager.rejoin_player(
+                        rc, orphan.player_id, nickname, websocket)
+                    if result["ok"]:
+                        room_code = rc
+                        player_id = result["player_id"]
+                        await websocket.send_json(_rejoined_message(result))
+                        await game_manager.notify_player_list(session)
+                        continue
                 if session.state != "lobby":
                     await websocket.send_json({"type": "error", "message": "Game already in progress"})
                     continue
                 if session.locked:
                     await websocket.send_json({"type": "error", "message": "room_locked"})
-                    continue
-                if not nickname:
-                    await websocket.send_json({"type": "error", "message": "Nickname is required"})
                     continue
                 if not is_nickname_allowed(nickname):
                     await websocket.send_json({"type": "error", "message": "nickname_not_allowed"})
@@ -1390,7 +1427,7 @@ async def ws_player(websocket: WebSocket):
                 room_code = rc
                 player_id = await game_manager.add_player(rc, nickname, websocket)
                 player = session.players.get(player_id) if player_id else None
-                player_list = session.connected_player_list()
+                player_list = session.player_list()
                 joined_msg = {
                     "type": "joined",
                     "player_id": player_id,
@@ -1457,21 +1494,19 @@ async def ws_player(websocket: WebSocket):
                 if result["ok"]:
                     room_code = rc
                     player_id = result["player_id"]
-                    rejoined_msg = {
-                        "type": "rejoined",
-                        "player_id": result["player_id"],
-                        "state": result["state"],
-                        "score": result["score"],
-                        "question_index": result["question_index"],
-                    }
-                    for key in ("question", "phase", "read_time_remaining",
-                                "answer_time_remaining", "already_answered", "reveal",
-                                "team", "team_name", "streak"):
-                        if key in result:
-                            rejoined_msg[key] = result[key]
-                    await websocket.send_json(rejoined_msg)
+                    await websocket.send_json(_rejoined_message(result))
+                    # Host sees the chip light up again; phones in the lobby
+                    # get the refreshed list.
+                    session = game_manager.get_session(rc)
+                    if session:
+                        await game_manager.notify_player_list(session)
                 else:
                     await websocket.send_json({"type": "error", "message": result["reason"]})
+
+            elif t == "ping":
+                # Client-side liveness probe (sent after a phone wakes up):
+                # any reply proves the socket is still alive end-to-end.
+                await websocket.send_json({"type": "pong"})
 
     except WebSocketDisconnect:
         if player_id and room_code:

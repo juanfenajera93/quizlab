@@ -163,6 +163,8 @@ html, body {
   gap: 8px;
 }
 
+.waiting-player-chip.offline { opacity: 0.45; border-style: dashed; }
+
 .waiting-player-chip {
   font-family: 'Barlow Condensed', sans-serif;
   font-weight: 700;

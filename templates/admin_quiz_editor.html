@@ -49,17 +49,20 @@
     </div>
     <div class="field" style="margin:0">
       <label>Puntuación</label>
+      <!-- autocomplete="off": browsers otherwise restore whatever these
+           controls held on the previous visit (reload / back), overriding
+           the state the server just rendered from the database. -->
       <div class="radio-group" id="scoring-mode-group">
         <label class="radio-btn" title="Más puntos por responder rápido (estilo Kahoot)">
-          <input type="radio" name="scoring-mode" value="speed"
+          <input type="radio" name="scoring-mode" value="speed" autocomplete="off"
                  {% if not quiz or quiz.scoring_mode != 'accuracy' %}checked{% endif %}> Velocidad
         </label>
         <label class="radio-btn" title="Puntos completos por respuesta correcta, sin presión de tiempo">
-          <input type="radio" name="scoring-mode" value="accuracy"
+          <input type="radio" name="scoring-mode" value="accuracy" autocomplete="off"
                  {% if quiz and quiz.scoring_mode == 'accuracy' %}checked{% endif %}> Precisión
         </label>
         <label class="radio-btn" title="+10% por respuesta correcta consecutiva (máx +50%)">
-          <input type="checkbox" id="streak-bonus"
+          <input type="checkbox" id="streak-bonus" autocomplete="off"
                  {% if quiz and quiz.streak_bonus %}checked{% endif %}> 🔥 Racha
         </label>
       </div>
@@ -101,7 +104,7 @@
 
   <div class="field">
     <label>Question Text *</label>
-    <textarea id="q-text-input" rows="3" placeholder="Enter question..."></textarea>
+    <textarea id="q-text-input" rows="3" placeholder="Enter question..." oninput="autosizeTextarea(this)"></textarea>
   </div>
 
   <!-- Area 3D: 5-type selector -->
@@ -307,6 +310,7 @@ function openPanel(idx) {
   }
   document.getElementById('q-form-panel').classList.add('open');
   document.getElementById('panel-backdrop').classList.add('show');
+  setTimeout(autosizeAllOptions, 260);
 }
 
 function closePanel() {
@@ -380,17 +384,32 @@ function renderOptions() {
     letter.style.color = OPTION_COLORS[i] || 'var(--text-muted)';
     letter.textContent = OPTION_LETTERS[i] || String(i + 1);
 
-    var input = document.createElement('input');
-    input.type = 'text';
+    // Auto-growing textarea instead of a single-line input: long option
+    // text wraps and stays fully visible instead of being clipped.
+    var input = document.createElement('textarea');
+    input.className = 'option-textarea';
+    input.rows = 1;
     input.style.margin = '0';
     input.value = opt;
     input.placeholder = 'Option ' + (OPTION_LETTERS[i] || String(i + 1));
     if (isTF) {
       input.readOnly = true;
     }
+    input.addEventListener('keydown', function(e) {
+      // Options are single entries: Enter moves on instead of adding a line
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var next = e.target.closest('.option-row').nextElementSibling;
+        var nextField = next ? next.querySelector('textarea') : null;
+        if (nextField) nextField.focus();
+      }
+    });
     input.addEventListener('input', (function(idx) {
       return function(e) {
-        currentOptions[idx] = e.target.value;
+        var v = e.target.value.replace(/[\r\n]+/g, ' ');
+        if (v !== e.target.value) e.target.value = v;
+        currentOptions[idx] = v;
+        autosizeTextarea(e.target);
         updateCorrectSelect();
       };
     })(i));
@@ -418,7 +437,22 @@ function renderOptions() {
     addBtn.style.display = (isTF || currentOptions.length >= MAX_OPTIONS) ? 'none' : '';
   }
 
+  // Fit each field to its text — needs to run after the rows are in the DOM
+  // (and again once the panel's open transition makes them measurable)
+  autosizeAllOptions();
+  setTimeout(autosizeAllOptions, 260);
+
   updateCorrectSelect();
+}
+
+function autosizeTextarea(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.max(el.scrollHeight, 38) + 'px';
+}
+
+function autosizeAllOptions() {
+  document.querySelectorAll('#options-list textarea, #q-text-input').forEach(autosizeTextarea);
 }
 
 function addOption() {
@@ -834,14 +868,33 @@ function saveQuiz() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   })
-  .then(function(r) { return r.json(); })
+  .then(function(r) {
+    // An expired admin session answers 401 with {"detail": ...}; before this
+    // check that response fell through as a false "Quiz saved!" and the
+    // scoring/streak changes were silently lost.
+    if (r.status === 401) {
+      showToast('Sesión expirada — vuelve a iniciar sesión', 'error');
+      setTimeout(function() { location.href = '/admin/login'; }, 1500);
+      throw new Error('unauthorized');
+    }
+    if (!r.ok) {
+      return r.json().catch(function() { return {}; }).then(function(d) {
+        throw new Error(d.error || d.detail || ('HTTP ' + r.status));
+      });
+    }
+    return r.json();
+  })
   .then(function(data) {
     if (data.error) { showToast(data.error, 'error'); return; }
+    if (!data.quiz_id) { showToast('Save failed: unexpected response', 'error'); return; }
     quizId = data.quiz_id;
     showToast('Quiz saved!', 'success');
     setTimeout(function() { location.href = '/admin/dashboard'; }, 1200);
   })
-  .catch(function() { showToast('Save failed', 'error'); });
+  .catch(function(err) {
+    if (err && err.message === 'unauthorized') return;
+    showToast('Save failed: ' + (err && err.message ? err.message : 'network error'), 'error');
+  });
 }
 
 // ── Utilities ─────────────────────────────────────────────────────

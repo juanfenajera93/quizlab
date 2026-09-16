@@ -23,6 +23,7 @@
   var joinedNickname = '';    // what we actually joined with (input or roster pick)
   var rosterMode = false;
   var myTeamName = null;
+  var wasInRoom = false;      // joined/rejoined at least once on this page load
 
   // ── Views ──────────────────────────────────────────────────────
   function _hideAllViews() {
@@ -55,51 +56,163 @@
     if (el) el.classList.add('active');
   }
 
-  // ── WebSocket ──────────────────────────────────────────────────
-  function connect(onOpen) {
-    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(proto + '://' + location.host + '/ws/player');
-    ws.onopen = function () { if (onOpen) onOpen(); };
-    ws.onmessage = function (e) {
-      try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
-    };
-    ws.onclose = function () { showError(t('conn_lost')); };
-    ws.onerror = function () {};
+  // ── Stored identity ────────────────────────────────────────────
+  // localStorage (not sessionStorage): a phone that locks for a while may
+  // have its tab discarded and recreated, or the student may re-scan the QR
+  // and land in a brand-new tab. Either way the same device must come back
+  // as the same player. It is cleared when the game ends, the player is
+  // kicked, the server says the room is gone, or a different room's QR is
+  // opened.
+  var ID_KEYS = { room: 'quizlab_room', nick: 'quizlab_nickname', pid: 'quizlab_player_id' };
+
+  function storageGet(store, key) {
+    try { return store.getItem(key); } catch (e) { return null; }
   }
 
-  var RECONNECT_DELAYS = [2000, 4000, 8000, 8000, 8000];
+  function getIdentity() {
+    var stores = [window.localStorage, window.sessionStorage];
+    for (var i = 0; i < stores.length; i++) {
+      var room = storageGet(stores[i], ID_KEYS.room);
+      var nick = storageGet(stores[i], ID_KEYS.nick);
+      var pid  = storageGet(stores[i], ID_KEYS.pid);
+      if (room && nick && pid) return { room: room, nick: nick, pid: pid };
+    }
+    return null;
+  }
 
-  function reconnect() {
-    var storedRoom = sessionStorage.getItem('quizlab_room');
-    var storedNick = sessionStorage.getItem('quizlab_nickname');
-    var storedPid  = sessionStorage.getItem('quizlab_player_id');
-    if (!storedRoom || !storedNick || !storedPid || reconnectAttempts >= 5) return;
-    var delay = RECONNECT_DELAYS[reconnectAttempts] || 8000;
+  function storeIdentity(room, nick, pid) {
+    try {
+      localStorage.setItem(ID_KEYS.room, room);
+      localStorage.setItem(ID_KEYS.nick, nick);
+      localStorage.setItem(ID_KEYS.pid, pid);
+    } catch (e) {}
+  }
+
+  function clearIdentity() {
+    [window.localStorage, window.sessionStorage].forEach(function (store) {
+      try {
+        store.removeItem(ID_KEYS.room);
+        store.removeItem(ID_KEYS.nick);
+        store.removeItem(ID_KEYS.pid);
+      } catch (e) {}
+    });
+  }
+
+  // ── WebSocket ──────────────────────────────────────────────────
+  var lastMessageAt = Date.now();  // last frame received (server pings every 25s)
+  var probeSentAt = 0;             // when we last asked the server "still there?"
+  var PROBE_AFTER_IDLE_MS = 40000; // > server heartbeat interval
+  var PROBE_TIMEOUT_MS = 8000;
+
+  function wsUrl() {
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    return proto + '://' + location.host + '/ws/player';
+  }
+
+  function attachHandlers(sock, onOpen, onClose) {
+    sock.onopen = function () {
+      lastMessageAt = Date.now();
+      probeSentAt = 0;
+      if (onOpen) onOpen();
+    };
+    sock.onmessage = function (e) {
+      lastMessageAt = Date.now();
+      probeSentAt = 0;
+      try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
+    };
+    sock.onclose = function () {
+      // A stale socket closing after we already opened a new one must not
+      // trigger a second reconnect cycle.
+      if (sock !== ws) return;
+      if (onClose) onClose();
+    };
+    sock.onerror = function () {};
+  }
+
+  function connect(onOpen) {
+    ws = new WebSocket(wsUrl());
+    attachHandlers(ws, onOpen, function () {
+      if (getIdentity()) reconnect(); else showError(t('conn_lost'));
+    });
+  }
+
+  // Backoff: quick first retries, then every 8s for as long as we have a
+  // stored identity. The loop only stops when the server says the room or
+  // player is gone (see onError), so a long outage or server restart still
+  // ends with the student back in the room.
+  var RECONNECT_DELAYS = [1000, 2000, 4000, 8000];
+
+  function reconnect(immediate) {
+    var id = getIdentity();
+    if (!id) return;
+    if (ws && ws.readyState === WebSocket.CONNECTING) return; // already trying
+    if (reconnectTimeout) {
+      if (!immediate) return;                                  // already scheduled
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    var delay = immediate ? 0
+      : RECONNECT_DELAYS[Math.min(reconnectAttempts, RECONNECT_DELAYS.length - 1)];
     reconnectAttempts++;
     showReconnectBanner();
-    if (reconnectTimeout) { clearTimeout(reconnectTimeout); }
     reconnectTimeout = setTimeout(function () {
       reconnectTimeout = null;
-      var proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(proto + '://' + location.host + '/ws/player');
-      ws.onopen = function () {
+      var current = getIdentity();
+      if (!current) { hideReconnectBanner(); return; }
+      var old = ws;
+      if (old && (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING)) {
+        try { old.close(); } catch (e) {}
+      }
+      ws = new WebSocket(wsUrl());
+      attachHandlers(ws, function () {
         ws.send(JSON.stringify({
           type: 'rejoin',
-          room_code: storedRoom,
-          player_id: storedPid,
-          nickname: storedNick
+          room_code: current.room,
+          player_id: current.pid,
+          nickname: current.nick
         }));
-      };
-      ws.onmessage = function (e) {
-        try { handleMessage(JSON.parse(e.data)); } catch (err) { console.error(err); }
-      };
-      ws.onclose = function () {
-        if (reconnectAttempts < 5 && sessionStorage.getItem('quizlab_room')) {
-          reconnect();
-        }
-      };
-      ws.onerror = function () {};
+      }, function () {
+        if (getIdentity()) reconnect();
+      });
     }, delay);
+  }
+
+  // Half-open sockets: after a screen lock or a WiFi↔cellular switch the
+  // browser may keep reporting OPEN on a connection the server already lost,
+  // and onclose never fires. If nothing has arrived for longer than the
+  // server's heartbeat we ask explicitly, and if that goes unanswered we
+  // close the socket ourselves, which kicks off the normal rejoin.
+  function checkLiveness() {
+    if (document.visibilityState !== 'visible') return;
+    if (!getIdentity()) return;
+    if (!ws || ws.readyState === WebSocket.CLOSED) { reconnect(); return; }
+    if (ws.readyState !== WebSocket.OPEN) return;
+    var now = Date.now();
+    if (probeSentAt) {
+      if (now - probeSentAt > PROBE_TIMEOUT_MS) {
+        probeSentAt = 0;
+        // Don't wait for the browser's close handshake to time out on a dead
+        // connection: start the rejoin now, the stale socket is ignored.
+        try { ws.close(); } catch (e) {}
+        reconnect(true);
+      }
+    } else if (now - lastMessageAt > PROBE_AFTER_IDLE_MS) {
+      probeSentAt = now;
+      send({ type: 'ping' });
+    }
+  }
+
+  // Called when the page comes back to the foreground or the network returns.
+  function resumeConnection() {
+    if (!getIdentity()) return;
+    reconnectAttempts = 0;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // Looks alive — verify it, the timers were frozen while backgrounded
+      probeSentAt = Date.now();
+      send({ type: 'ping' });
+    } else if (!ws || ws.readyState !== WebSocket.CONNECTING) {
+      reconnect(true);
+    }
   }
 
   function showReconnectBanner() {
@@ -136,6 +249,7 @@
       case 'team_update':   onTeamUpdate(msg);      break;
       case 'kicked':        onKicked();             break;
       case 'ping':          send({ type: 'pong' }); break;
+      case 'pong':          break; // liveness probe answered (see attachHandlers)
       case 'error':         onError(msg);           break;
     }
   }
@@ -144,11 +258,11 @@
     hideReconnectBanner();
     if (msg.message === 'room_not_found' || msg.message === 'player_not_found') {
       // Rejected rejoin: the session is gone — clear it so reconnect stops looping
-      sessionStorage.removeItem('quizlab_room');
-      sessionStorage.removeItem('quizlab_nickname');
-      sessionStorage.removeItem('quizlab_player_id');
+      clearIdentity();
       showView('join-view');
-      showError(t('session_gone'));
+      // Only explain if they were actually in a room on this page; a stale
+      // identity from last week's quiz should just land on a clean join form
+      if (wasInRoom) showError(t('session_gone'));
     } else if (msg.message === 'room_locked') {
       showError(t('room_locked'));
     } else if (msg.message === 'nickname_not_allowed') {
@@ -167,9 +281,7 @@
   }
 
   function onKicked() {
-    sessionStorage.removeItem('quizlab_room');
-    sessionStorage.removeItem('quizlab_nickname');
-    sessionStorage.removeItem('quizlab_player_id');
+    clearIdentity();
     clearTimer();
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     var emojiBar = document.getElementById('emoji-bar');
@@ -181,17 +293,10 @@
   function onJoined(msg) {
     playerId = msg.player_id;
     roomCode = msg.room_code;
-    sessionStorage.setItem('quizlab_room', msg.room_code);
-    sessionStorage.setItem('quizlab_nickname', joinedNickname);
-    sessionStorage.setItem('quizlab_player_id', msg.player_id);
-    if (ws) {
-      ws.onclose = function () {
-        if (sessionStorage.getItem('quizlab_room')) {
-          reconnectAttempts = 0;
-          reconnect();
-        }
-      };
-    }
+    storeIdentity(msg.room_code, joinedNickname, msg.player_id);
+    wasInRoom = true;
+    reconnectAttempts = 0;
+    hideReconnectBanner();
     document.getElementById('waiting-room-code').textContent = roomCode;
     document.getElementById('my-nickname').textContent = joinedNickname;
     updateTeamBadge(msg.team, msg.team_name);
@@ -737,6 +842,7 @@
 
   function onGameEnd(msg) {
     clearTimer();
+    clearIdentity();  // the room is over: next visit goes to the join form
     var emojiBar = document.getElementById('emoji-bar');
     if (emojiBar) emojiBar.style.display = 'none';
     showFinal();
@@ -819,7 +925,8 @@
     reconnectAttempts = 0;
     playerId = msg.player_id;
     playerScore = msg.score || 0;
-    roomCode = sessionStorage.getItem('quizlab_room');
+    var identity = getIdentity();
+    roomCode = identity ? identity.room : roomCode;
 
     if (msg.state === 'lobby') {
       showView('waiting-view');
@@ -856,24 +963,30 @@
   function onRejoined(msg) {
     hideReconnectBanner();
     reconnectAttempts = 0;
+    wasInRoom = true;
     playerScore = msg.score || 0;
+    var identity = getIdentity();
     if (msg.player_id) {
       playerId = msg.player_id;
-      sessionStorage.setItem('quizlab_player_id', msg.player_id);
+      if (identity) storeIdentity(identity.room, identity.nick, msg.player_id);
     }
-    if (ws) {
-      ws.onclose = function () {
-        if (sessionStorage.getItem('quizlab_room')) {
-          reconnectAttempts = 0;
-          reconnect();
-        }
-      };
+    if (identity) {
+      // A "join" that was silently upgraded to a rejoin (seat reclaimed by
+      // name) never went through onJoined, so fill the waiting screen here.
+      roomCode = identity.room;
+      joinedNickname = identity.nick;
+      var wrc = document.getElementById('waiting-room-code');
+      var wnick = document.getElementById('my-nickname');
+      if (wrc) wrc.textContent = roomCode;
+      if (wnick) wnick.textContent = joinedNickname;
     }
+    if (msg.team !== undefined) updateTeamBadge(msg.team, msg.team_name);
     var state = msg.state;
     var emojiBar = document.getElementById('emoji-bar');
     if (emojiBar) emojiBar.style.display = (state === 'ended') ? 'none' : 'flex';
     if (state === 'lobby') {
       showView('waiting-view');
+      if (msg.player_list) renderWaitingPlayers(msg.player_list);
     } else if (state === 'question' && msg.question) {
       var qData = msg.question;
       if (msg.phase === 'reading') {
@@ -907,6 +1020,7 @@
 
   function onGameEnded(msg) {
     clearTimer();
+    clearIdentity();
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     var emojiBar = document.getElementById('emoji-bar');
     if (emojiBar) emojiBar.style.display = 'none';
@@ -1018,7 +1132,7 @@
     list.innerHTML = '';
     players.forEach(function (p) {
       var chip = document.createElement('div');
-      chip.className = 'waiting-player-chip';
+      chip.className = 'waiting-player-chip' + (p.connected === false ? ' offline' : '');
       chip.textContent = p.nickname;
       list.appendChild(chip);
     });
@@ -1138,22 +1252,32 @@
       }
     });
 
-    // Reconnect when tab becomes visible and socket is dead
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible' &&
-          (!ws || ws.readyState !== WebSocket.OPEN) &&
-          sessionStorage.getItem('quizlab_room')) {
-        reconnectAttempts = 0;
-        reconnect();
-      }
-    });
+    // A QR for a *different* room than the one we're remembered in means a
+    // new session: drop the old identity so we show the join form.
+    var remembered = getIdentity();
+    if (room && remembered && remembered.room !== room.toUpperCase()) {
+      clearIdentity();
+      remembered = null;
+    }
 
-    // After a page reload mid-game, rejoin automatically instead of showing
-    // the join form (the join path rejects rooms already in progress)
-    if (sessionStorage.getItem('quizlab_room') &&
-        sessionStorage.getItem('quizlab_player_id')) {
+    // Wake-ups: screen unlock / tab foregrounded, network back, page
+    // restored from the back-forward cache. Each one re-validates the
+    // socket (probe) or starts an immediate rejoin.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') resumeConnection();
+    });
+    window.addEventListener('online', function () { resumeConnection(); });
+    window.addEventListener('pageshow', function (e) {
+      if (e.persisted) resumeConnection();
+    });
+    window.addEventListener('focus', function () { resumeConnection(); });
+    setInterval(checkLiveness, 5000);
+
+    // After a page reload (or a recreated tab), rejoin automatically instead
+    // of showing the join form (the join path rejects rooms in progress)
+    if (remembered) {
       reconnectAttempts = 0;
-      reconnect();
+      reconnect(true);
     }
   });
 
