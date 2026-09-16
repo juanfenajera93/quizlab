@@ -15,6 +15,9 @@
   var revealSent = false;
   var inReadPhase = false;
   var answerCounts = [];
+  // Live "answered / connected" counter. The server attaches `answered` and
+  // `connected` to every host message that can move either number.
+  var answerProgress = { answered: 0, connected: 0 };
   var answersRevealed = false;
   var latestCounts = [];
   var RECONNECT_DELAYS = [2000, 4000, 8000, 8000, 8000];
@@ -184,6 +187,7 @@
       }
     }
     if (msg.teams) renderTeamStandings(msg.teams);
+    updateAnswerProgress(msg);
 
     if (msg.state === 'lobby' || !msg.question) {
       onSessionCreated({ room_code: msg.room_code, quiz_name: msg.quiz_name });
@@ -229,6 +233,7 @@
   }
 
   function onWordcloudUpdate(msg) {
+    updateAnswerProgress(msg);
     if (answersRevealed) return;
     var feed = document.getElementById('word-feed');
     if (!feed) return;
@@ -265,6 +270,7 @@
   function onPlayerUpdate(msg) {
     var players = msg.players || msg.player_list || [];
     var count = players.length;
+    updateAnswerProgress(msg);
     var offline = players.filter(function (p) { return p.connected === false; }).length;
     if (msg.team_count !== undefined) teamCount = msg.team_count || 0;
 
@@ -353,6 +359,13 @@
 
     // Reset chart (build dynamic bar rows)
     buildChart(msg.options || []);
+    // Counter resets to 0/<connected> — `connected` rides on the question
+    // message; fall back to the last known denominator on a host rejoin
+    // (where the question payload is nested and lacks it).
+    updateAnswerProgress({
+      answered: 0,
+      connected: typeof msg.connected === 'number' ? msg.connected : answerProgress.connected,
+    });
 
     // Reset reveal panel + buttons
     document.getElementById('reveal-panel').classList.add('hidden');
@@ -459,6 +472,7 @@
 
   function onAnswerCounts(msg) {
     latestCounts = msg.counts;
+    updateAnswerProgress(msg);
     if (answersRevealed) {
       updateChart(latestCounts);
     }
@@ -741,6 +755,22 @@
         '<span class="bar-count">0</span>';
       barRows.appendChild(row);
     });
+  }
+
+  // Paint the "N/M respondieron" counter. Ignores messages that don't
+  // carry both numbers so unrelated host messages can't blank it.
+  function updateAnswerProgress(msg) {
+    if (!msg || typeof msg.answered !== 'number' || typeof msg.connected !== 'number') return;
+    answerProgress.answered = msg.answered;
+    answerProgress.connected = msg.connected;
+    var el = document.getElementById('answer-progress');
+    if (!el) return;
+    el.textContent = t('answered_of')
+      .replace('{n}', answerProgress.answered)
+      .replace('{m}', answerProgress.connected);
+    var allIn = answerProgress.connected > 0 &&
+                answerProgress.answered >= answerProgress.connected;
+    el.classList.toggle('all-in', allIn);
   }
 
   function updateChart(counts) {

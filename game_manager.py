@@ -187,6 +187,18 @@ class GameSession:
     def connected_count(self) -> int:
         return sum(1 for p in self.players.values() if p.connected)
 
+    def answered_count(self) -> int:
+        """Online players who have submitted a response to the current
+        question — any kind of response (index, multi-select confirm, an
+        ordering, a word), so poll and wordcloud count the same way as scored
+        types. Offline players are excluded to match connected_count(): the
+        host's "answered / connected" counter uses both."""
+        qi = self.current_question_index
+        if qi < 0:
+            return 0
+        return sum(1 for p in self.players.values()
+                   if p.connected and qi in p.answers)
+
 
 def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
                   base_points, scoring_mode="speed"):
@@ -336,9 +348,9 @@ class GameManager:
         await self._send_host(session, {
             "type": "player_update",
             "count": len(players),
-            "connected": session.connected_count(),
             "players": players,
             "team_count": session.team_count,
+            **self._answer_progress(session),
         })
         if include_players and session.state == "lobby":
             await self._broadcast_players(session, {
@@ -466,7 +478,9 @@ class GameManager:
         logger.info("room %s: question %d/%d started (%s)",
                     session.room_code, qi + 1, len(session.questions), q_type)
         await self._broadcast_players(session, msg)
-        await self._send_host(session, msg)
+        # Progress is computed after the broadcast so a phone whose send just
+        # failed is already out of the denominator.
+        await self._send_host(session, {**msg, **self._answer_progress(session)})
 
     async def handle_answer(
         self,
@@ -509,6 +523,7 @@ class GameManager:
         await self._send_host(session, {
             "type": "answer_counts",
             "counts": session.answer_counts,
+            **self._answer_progress(session),
         })
 
     async def handle_selection(
@@ -545,6 +560,7 @@ class GameManager:
         await self._send_host(session, {
             "type": "answer_counts",
             "counts": session.answer_counts,
+            **self._answer_progress(session),
         })
 
     async def handle_confirm(
@@ -573,6 +589,14 @@ class GameManager:
             player.answer_times[question_id] = max(0.0, elapsed)
         else:
             player.answer_times[question_id] = 0.0
+
+        # Bars don't change on confirm (they track live selections), but the
+        # "answered" counter does.
+        await self._send_host(session, {
+            "type": "answer_counts",
+            "counts": session.answer_counts,
+            **self._answer_progress(session),
+        })
 
     async def handle_order_update(
         self,
@@ -614,6 +638,7 @@ class GameManager:
         await self._send_host(session, {
             "type": "answer_counts",
             "counts": session.answer_counts,
+            **self._answer_progress(session),
         })
 
     async def reveal_answer(self, room_code: str):
@@ -851,6 +876,15 @@ class GameManager:
         # and abort the broadcast for everyone after it.
         for player in list(session.players.values()):
             await self._send_to_player(player, message)
+
+    def _answer_progress(self, session: GameSession) -> dict:
+        """Fields for the host's live "answered / connected" counter. Attached
+        to every host message that can move either number so the counter
+        rides the existing channel instead of polling."""
+        return {
+            "answered": session.answered_count(),
+            "connected": session.connected_count(),
+        }
 
     async def _send_host(self, session: GameSession, message: dict):
         if session.host_websocket:
@@ -1093,8 +1127,8 @@ class GameManager:
             "state": session.state,
             "question_index": session.current_question_index,
             "player_list": session.player_list(),
-            "connected": session.connected_count(),
             "leaderboard": session.get_leaderboard(),
+            **self._answer_progress(session),
             "locked": session.locked,
             "team_count": session.team_count,
             "class_id": session.class_id,
@@ -1276,6 +1310,7 @@ class GameManager:
             "type": "wordcloud_update",
             "question_id": question_id,
             "words": word_list,
+            **self._answer_progress(session),
         })
 
     async def broadcast_reaction(self, room_code: str, player_id: str, emoji: str):

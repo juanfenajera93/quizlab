@@ -366,6 +366,14 @@
   background: var(--surface);
 }
 
+.chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
 .chart-title {
   font-family: 'Barlow Condensed', sans-serif;
   font-weight: 900;
@@ -373,7 +381,22 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
-  margin-bottom: 20px;
+}
+
+/* Live "answered / connected" counter — sits beside the chart title */
+.answer-progress {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.2s ease;
+}
+
+.answer-progress.all-in {
+  color: #22c55e;
 }
 
 .bar-rows {
@@ -938,6 +961,7 @@ body.projector-mode .tile-letter { font-size: 34px !important; }
 body.projector-mode .bar-letter { font-size: 24px !important; }
 body.projector-mode .bar-count { font-size: 22px !important; }
 body.projector-mode .chart-title,
+body.projector-mode .answer-progress,
 body.projector-mode .reveal-lb-title { font-size: 20px !important; }
 body.projector-mode .lb-row { font-size: 20px !important; }
 body.projector-mode .lb-name { font-size: 20px !important; }
