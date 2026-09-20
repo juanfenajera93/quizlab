@@ -100,6 +100,8 @@ The `render.yaml` includes a 1 GB persistent disk mounted at `/data` for the SQL
 
 > **Note:** After deploy, find your auto-generated `ADMIN_PASSWORD` in **Environment → Secret Files** or the deploy logs.
 
+> **Free-tier spin-down risk:** Render's free plan spins the service down after ~15 minutes with no inbound HTTP traffic, which can restart the process mid-class (e.g. during a normal lecture gap between quiz questions). QuizLab persists live session/player state to the database and rehydrates it on startup, so a restart no longer loses scores or strands connected students — everyone's phone rejoins the same room code automatically. What this does **not** fix is the ~30-60s cold-start delay while a spun-down instance wakes back up: during that window the app is unreachable for everyone, host and students alike. For classes running live, upgrade to a paid Render plan to avoid spin-down entirely.
+
 ## WebSocket Protocol Reference
 
 ### Player → Server

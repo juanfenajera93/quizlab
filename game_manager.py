@@ -8,8 +8,25 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from fastapi import WebSocket
+from sqlmodel import Session, select
+
+from database import engine
+from models import LiveSession, LivePlayer, Quiz, Question
 
 logger = logging.getLogger("quizlab.game")
+
+# A player is considered gone (not just quiet) after this many seconds with no
+# inbound traffic at all — no answer, no ping/pong reply, nothing. This is
+# roughly 3 missed 25s heartbeats, and exists because a `send()` to a socket
+# the OS silently killed in the background (phone locked, carrier NAT drop)
+# can succeed for a long time before raising — waiting on that alone left
+# dead connections showing as "connected" indefinitely.
+PLAYER_TIMEOUT_SECONDS = 75
+
+# How stale a persisted room can be before we refuse to rehydrate it on
+# startup — matches cleanup_old_sessions' own GC window, so a restart never
+# resurrects a room that would otherwise already have been collected.
+LIVE_SESSION_MAX_AGE = timedelta(hours=2)
 
 # Nickname profanity filter (es/en). Matched as substrings after normalizing
 # accents and common leetspeak, so "P3nd3jo" is caught too.
@@ -41,7 +58,7 @@ TEAM_NAMES = ["Equipo Lima", "Equipo Fuego", "Equipo Violeta", "Equipo Azul"]
 
 
 class Player:
-    def __init__(self, player_id: str, nickname: str, websocket: WebSocket,
+    def __init__(self, player_id: str, nickname: str, websocket: Optional[WebSocket],
                  room_code: str = ""):
         self.player_id = player_id
         self.nickname = nickname
@@ -52,10 +69,14 @@ class Player:
         self.selections: Dict[int, Any] = {}     # live selections (ms/order)
         self.confirmed: set = set()              # locked question ids
         self.answer_times: Dict[int, float] = {}
-        self.connected = True
+        self.connected = websocket is not None
         self.streak = 0                          # consecutive fully-correct answers
         self.team: Optional[int] = None          # team index when team mode is on
         self.student_id: Optional[int] = None    # roster identity when class attached
+        # Last time any message (answer, ping/pong, anything) arrived from this
+        # player's socket. Used to detect a half-open connection that a plain
+        # send() might not fail on for a long time. See PLAYER_TIMEOUT_SECONDS.
+        self.last_seen: float = time.time()
         # Scoring outcome per question, written once at reveal so rejoins and
         # the end-of-game review never re-derive (or re-randomize) points:
         # {qi: {"points", "correct", "answered", "streak_after"}}
@@ -63,7 +84,7 @@ class Player:
 
 
 class GameSession:
-    def __init__(self, room_code: str, quiz_data: dict, host_websocket: WebSocket):
+    def __init__(self, room_code: str, quiz_data: dict, host_websocket: Optional[WebSocket]):
         self.room_code = room_code
         self.quiz_data = quiz_data
         self.host_websocket = host_websocket
@@ -270,6 +291,92 @@ def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
     return 0, False
 
 
+def build_quiz_data(quiz: Quiz, questions: List[Question]) -> dict:
+    """Shape a Quiz + its Questions into the dict GameSession stores as
+    quiz_data. Shared by main.py's host WS handshake and rehydrate_live()
+    so both build the exact same structure."""
+    return {
+        "id": quiz.id,
+        "name": quiz.name,
+        "read_time": quiz.read_time,
+        "scoring_mode": getattr(quiz, "scoring_mode", None) or "speed",
+        "streak_bonus": bool(getattr(quiz, "streak_bonus", False)),
+        "questions": [
+            {
+                "text": q.text,
+                "question_type": q.question_type,
+                "options": json.loads(q.options_json) if q.options_json else [],
+                "correct_json": q.correct_json,
+                "time_limit": q.time_limit,
+                "points": q.points,
+                "image_url": q.image_url,
+            }
+            for q in questions
+        ],
+    }
+
+
+def _dump_session_state(session: "GameSession") -> dict:
+    """Everything needed to rebuild a GameSession, other than quiz_id/state/
+    current_question_index (own LiveSession columns) and the player roster
+    (own LivePlayer rows)."""
+    return {
+        "locked": session.locked,
+        "team_count": session.team_count,
+        "class_id": session.class_id,
+        "class_name": session.class_name,
+        "roster": session.roster,
+        "order_correct": session.order_correct,
+        "revealed_questions": list(session.revealed_questions),
+        "wordcloud_answers": session.wordcloud_answers,
+        "answer_counts": session.answer_counts,
+        "question_start_time": session.question_start_time,
+        "answer_phase_start_time": session.answer_phase_start_time,
+    }
+
+
+def _load_session_state(session: "GameSession", data: dict) -> None:
+    session.locked = data.get("locked", False)
+    session.team_count = data.get("team_count")
+    session.class_id = data.get("class_id")
+    session.class_name = data.get("class_name")
+    session.roster = data.get("roster")
+    session.order_correct = {int(k): v for k, v in (data.get("order_correct") or {}).items()}
+    session.revealed_questions = set(data.get("revealed_questions") or [])
+    session.wordcloud_answers = {
+        int(k): v for k, v in (data.get("wordcloud_answers") or {}).items()
+    }
+    session.answer_counts = data.get("answer_counts") or []
+    session.question_start_time = data.get("question_start_time")
+    session.answer_phase_start_time = data.get("answer_phase_start_time")
+
+
+def _dump_player_state(player: "Player") -> dict:
+    return {
+        "team": player.team,
+        "student_id": player.student_id,
+        "streak": player.streak,
+        "answers": player.answers,
+        "selections": player.selections,
+        "confirmed": list(player.confirmed),
+        "answer_times": player.answer_times,
+        "question_results": player.question_results,
+    }
+
+
+def _load_player_state(player: "Player", data: dict) -> None:
+    player.team = data.get("team")
+    player.student_id = data.get("student_id")
+    player.streak = data.get("streak", 0)
+    player.answers = {int(k): v for k, v in (data.get("answers") or {}).items()}
+    player.selections = {int(k): v for k, v in (data.get("selections") or {}).items()}
+    player.confirmed = set(data.get("confirmed") or [])
+    player.answer_times = {int(k): v for k, v in (data.get("answer_times") or {}).items()}
+    player.question_results = {
+        int(k): v for k, v in (data.get("question_results") or {}).items()
+    }
+
+
 class GameManager:
     def __init__(self):
         self.sessions: Dict[str, GameSession] = {}
@@ -284,10 +391,168 @@ class GameManager:
     def create_session(self, quiz_data: dict, host_websocket: WebSocket) -> str:
         code = self.generate_room_code()
         self.sessions[code] = GameSession(code, quiz_data, host_websocket)
+        logger.info("room %s: created (quiz_id=%s)", code, quiz_data.get("id"))
+        self.persist_live_session(code)
         return code
 
     def get_session(self, room_code: str) -> Optional[GameSession]:
         return self.sessions.get(room_code.upper())
+
+    # ─── Live-state persistence (survives a process restart) ────────────────
+    # Render can restart the process mid-class (free-tier idle spin-down,
+    # deploys, crashes). Without this, that wipes every active room and
+    # permanently stranded every connected student — the room and player_id a
+    # phone has in localStorage would simply cease to exist server-side, so
+    # every "rejoin" comes back player_not_found/room_not_found. Persisting a
+    # snapshot after each meaningful state change (and a periodic full sweep
+    # from the heartbeat loop) lets rehydrate_live() rebuild the in-memory
+    # session on the next startup, so a restart looks like an ordinary
+    # drop-and-rejoin instead of a dead room.
+
+    def persist_live_player(self, room_code: str, player: "Player") -> None:
+        try:
+            with Session(engine) as db:
+                row = db.exec(
+                    select(LivePlayer).where(
+                        LivePlayer.room_code == room_code,
+                        LivePlayer.player_id == player.player_id,
+                    )
+                ).first()
+                if row is None:
+                    row = LivePlayer(room_code=room_code, player_id=player.player_id,
+                                      nickname=player.nickname)
+                row.nickname = player.nickname
+                row.score = player.score
+                row.state_json = json.dumps(_dump_player_state(player))
+                db.add(row)
+                db.commit()
+        except Exception:
+            logger.exception("room %s: failed to persist player %r (live state)",
+                             room_code, player.nickname)
+
+    def persist_live_session(self, room_code: str) -> None:
+        session = self.get_session(room_code)
+        if not session or session.state == "ended":
+            return
+        try:
+            with Session(engine) as db:
+                row = db.get(LiveSession, room_code)
+                if row is None:
+                    row = LiveSession(room_code=room_code,
+                                      quiz_id=session.quiz_data.get("id"))
+                row.quiz_id = session.quiz_data.get("id")
+                row.state = session.state
+                row.current_question_index = session.current_question_index
+                row.last_activity = session.last_activity
+                row.state_json = json.dumps(_dump_session_state(session))
+                db.add(row)
+                db.commit()
+        except Exception:
+            logger.exception("room %s: failed to persist session (live state)", room_code)
+            return
+        for player in session.players.values():
+            self.persist_live_player(room_code, player)
+
+    def delete_live_player(self, room_code: str, player_id: str) -> None:
+        try:
+            with Session(engine) as db:
+                row = db.exec(
+                    select(LivePlayer).where(
+                        LivePlayer.room_code == room_code,
+                        LivePlayer.player_id == player_id,
+                    )
+                ).first()
+                if row:
+                    db.delete(row)
+                    db.commit()
+        except Exception:
+            logger.exception("room %s: failed to delete live-player row %s",
+                             room_code, player_id)
+
+    def delete_live_session(self, room_code: str) -> None:
+        try:
+            with Session(engine) as db:
+                for row in db.exec(
+                    select(LivePlayer).where(LivePlayer.room_code == room_code)
+                ).all():
+                    db.delete(row)
+                live = db.get(LiveSession, room_code)
+                if live:
+                    db.delete(live)
+                db.commit()
+        except Exception:
+            logger.exception("room %s: failed to delete live-session rows", room_code)
+
+    def rehydrate_live(self) -> None:
+        """Rebuild in-memory sessions from the DB on startup. Sockets never
+        survive a restart, so every player and the host come back with
+        connected=False / websocket=None — identical to an ordinary drop,
+        which the existing rejoin flow already handles."""
+        try:
+            with Session(engine) as db:
+                live_rows = db.exec(select(LiveSession)).all()
+                if not live_rows:
+                    return
+                cutoff = datetime.utcnow() - LIVE_SESSION_MAX_AGE
+                restored = 0
+                for row in live_rows:
+                    if row.last_activity < cutoff:
+                        logger.info("room %s: skipped rehydration (stale since %s)",
+                                    row.room_code, row.last_activity.isoformat(timespec="seconds"))
+                        for p in db.exec(select(LivePlayer)
+                                        .where(LivePlayer.room_code == row.room_code)).all():
+                            db.delete(p)
+                        db.delete(row)
+                        continue
+
+                    quiz = db.get(Quiz, row.quiz_id)
+                    if not quiz:
+                        continue
+                    questions = db.exec(
+                        select(Question).where(Question.quiz_id == row.quiz_id)
+                        .order_by(Question.position)
+                    ).all()
+                    quiz_data = build_quiz_data(quiz, questions)
+
+                    session = GameSession(row.room_code, quiz_data, None)
+                    session.state = row.state
+                    session.current_question_index = row.current_question_index
+                    session.created_at = row.created_at
+                    session.last_activity = row.last_activity
+                    _load_session_state(session, json.loads(row.state_json or "{}"))
+
+                    player_rows = db.exec(
+                        select(LivePlayer).where(LivePlayer.room_code == row.room_code)
+                    ).all()
+                    for prow in player_rows:
+                        player = Player(prow.player_id, prow.nickname, None, row.room_code)
+                        player.score = prow.score
+                        _load_player_state(player, json.loads(prow.state_json or "{}"))
+                        session.players[prow.player_id] = player
+
+                    self.sessions[row.room_code] = session
+                    restored += 1
+                    logger.warning(
+                        "room %s: REHYDRATED after restart (state=%s, question=%d, %d players)",
+                        row.room_code, session.state, session.current_question_index + 1,
+                        len(session.players))
+                db.commit()
+                if restored:
+                    logger.warning("rehydrate_live: restored %d live session(s) from database",
+                                   restored)
+        except Exception:
+            logger.exception("rehydrate_live: failed to restore sessions from database")
+
+    def touch_player(self, room_code: str, player_id: str) -> None:
+        """Record that traffic (of any kind) arrived from this player's
+        socket, so ping_all_players() can tell a truly-dead half-open
+        connection from one that just hasn't sent anything lately."""
+        session = self.get_session(room_code)
+        if not session:
+            return
+        player = session.players.get(player_id)
+        if player:
+            player.last_seen = time.time()
 
     async def add_player(
         self, room_code: str, nickname: str, websocket: WebSocket
@@ -308,6 +573,7 @@ class GameManager:
         if existing is not None:
             existing.websocket = websocket
             existing.connected = True
+            existing.last_seen = time.time()
             session.touch()
             logger.info("room %s: player %r reclaimed seat %s via fresh join",
                         session.room_code, existing.nickname, existing.player_id)
@@ -337,6 +603,7 @@ class GameManager:
                     session.room_code, nickname, player_id,
                     player.team, player.student_id)
 
+        self.persist_live_session(session.room_code)
         await self.notify_player_list(session)
         return player_id
 
@@ -373,6 +640,7 @@ class GameManager:
             p.team = (i % count) if session.team_count else None
         logger.info("room %s: team mode set to %s",
                     session.room_code, session.team_count or "off")
+        self.persist_live_session(room_code)
         for p in players:
             await self._send_to_player(p, {
                 "type": "team_update",
@@ -396,6 +664,7 @@ class GameManager:
         logger.info("room %s: class %s attached (%d roster names)",
                     session.room_code, class_name or "none",
                     len(roster or []))
+        self.persist_live_session(room_code)
         return True
 
     def set_locked(self, room_code: str, locked: bool) -> bool:
@@ -406,6 +675,7 @@ class GameManager:
         session.touch()
         logger.info("room %s: room %s", session.room_code,
                     "locked" if session.locked else "unlocked")
+        self.persist_live_session(room_code)
         return session.locked
 
     async def kick_player(self, room_code: str, player_id: str):
@@ -418,6 +688,7 @@ class GameManager:
         session.touch()
         logger.info("room %s: player %r kicked by host",
                     session.room_code, player.nickname)
+        self.delete_live_player(room_code, player_id)
         try:
             await player.websocket.send_json({"type": "kicked"})
         except Exception:
@@ -477,6 +748,7 @@ class GameManager:
         session.touch()
         logger.info("room %s: question %d/%d started (%s)",
                     session.room_code, qi + 1, len(session.questions), q_type)
+        self.persist_live_session(session.room_code)
         await self._broadcast_players(session, msg)
         # Progress is computed after the broadcast so a phone whose send just
         # failed is already out of the denominator.
@@ -520,6 +792,7 @@ class GameManager:
         if 0 <= answer_index < len(session.answer_counts):
             session.answer_counts[answer_index] += 1
 
+        self.persist_live_player(room_code, player)
         await self._send_host(session, {
             "type": "answer_counts",
             "counts": session.answer_counts,
@@ -590,6 +863,7 @@ class GameManager:
         else:
             player.answer_times[question_id] = 0.0
 
+        self.persist_live_player(room_code, player)
         # Bars don't change on confirm (they track live selections), but the
         # "answered" counter does.
         await self._send_host(session, {
@@ -710,6 +984,7 @@ class GameManager:
             }
 
         leaderboard = session.get_leaderboard()
+        self.persist_live_session(room_code)
 
         for player in list(session.players.values()):
             reveal_msg = self._build_player_reveal(session, player, leaderboard)
@@ -808,6 +1083,9 @@ class GameManager:
         session.analytics_data = self.compile_analytics(session)
         session.state = "ended"
         session.touch()
+        # The game is over: nothing left to rehydrate a restart into, and the
+        # final results now live in the permanent history tables instead.
+        self.delete_live_session(room_code)
         leaderboard = session.get_leaderboard()
         teams = session.get_team_leaderboard() if session.team_count else None
         logger.info("room %s: game ended (%d players, %d/%d questions)",
@@ -1071,10 +1349,11 @@ class GameManager:
         was_connected = player.connected
         player.websocket = websocket
         player.connected = True
+        player.last_seen = time.time()
         session.touch()
-        logger.info("room %s: player rejoined %r (%s, state=%s, was_connected=%s)",
+        logger.info("room %s: player rejoined %r (%s, state=%s, was_connected=%s, score=%d)",
                     session.room_code, player.nickname, player.player_id,
-                    session.state, was_connected)
+                    session.state, was_connected, player.score)
         # NOTE: the caller must follow up with notify_player_list() once the
         # "rejoined" message has been sent, so the host (and, in the lobby,
         # the other phones) learn the seat is live again. Without that the
@@ -1161,6 +1440,7 @@ class GameManager:
             return
         session.state = "ended"
         session.touch()
+        self.delete_live_session(room_code)
         logger.info("room %s: session stopped by host at question %d/%d",
                     session.room_code, session.current_question_index + 1,
                     len(session.questions))
@@ -1170,11 +1450,29 @@ class GameManager:
         })
 
     async def ping_all_players(self):
+        now = time.time()
         for session in list(self.sessions.values()):
             if session.state == "ended":
                 continue
             changed = False
             for player in list(session.players.values()):
+                # A silently-dropped connection (phone locked, carrier NAT
+                # dropped the mapping) doesn't always make send() raise — TCP
+                # can keep "succeeding" into a dead socket for a long time.
+                # Bound the damage: if nothing at all has arrived from this
+                # player in ~3 heartbeats, treat them as gone even though the
+                # last send didn't error.
+                if player.connected and now - player.last_seen > PLAYER_TIMEOUT_SECONDS:
+                    logger.warning(
+                        "room %s: player %r timed out (no traffic for %ds), marking disconnected",
+                        session.room_code, player.nickname, int(now - player.last_seen))
+                    player.connected = False
+                    changed = True
+                    try:
+                        await player.websocket.close()
+                    except Exception:
+                        pass
+                    continue
                 if player.connected:
                     ok = await self._send_to_player(player, {"type": "ping"})
                     if not ok:
@@ -1188,6 +1486,10 @@ class GameManager:
                 # A heartbeat send failed: reflect the offline flag on the
                 # host right away instead of waiting for the socket's close.
                 await self.notify_player_list(session)
+            # Periodic backstop: catches in-progress state (live selections,
+            # order drags) that isn't persisted on every keystroke, so a
+            # restart loses at most one heartbeat interval of granular state.
+            self.persist_live_session(session.room_code)
 
     def compile_analytics(self, session: GameSession) -> dict:
         question_stats = []
@@ -1305,6 +1607,7 @@ class GameManager:
         else:
             player.answer_times[question_id] = 0.0
 
+        self.persist_live_player(room_code, player)
         word_list = list(session.wordcloud_answers[question_id].values())
         await self._send_host(session, {
             "type": "wordcloud_update",
@@ -1340,6 +1643,7 @@ class GameManager:
                         code, s.last_activity.isoformat(timespec="seconds"),
                         s.state)
             del self.sessions[code]
+            self.delete_live_session(code)
 
 
 game_manager = GameManager()

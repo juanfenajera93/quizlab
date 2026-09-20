@@ -156,10 +156,19 @@
 
   function onError(msg) {
     if (rejoinPending) {
-      // The stored room is gone (server restart, session expired): fall back
-      // to creating a brand-new session on the same socket.
+      // The stored room is truly gone server-side (not just this socket —
+      // the server persists live sessions specifically so a restart doesn't
+      // lose them, so this should now be rare: DB unreachable, the room aged
+      // out past the GC window, or the quiz was deleted mid-class). Students'
+      // phones still hold the OLD room code and will silently fail to
+      // rejoin it, so this can't be a silent fallback — the teacher needs to
+      // know to re-share the new QR code.
+      console.error('QuizLab: host_rejoin failed (' + msg.message + ') — creating a new room. ' +
+                     'Students on the old room code will need the new QR/code.');
       rejoinPending = false;
       clearHostSession();
+      alert(t('room_lost_recreated') ||
+            'Se perdió la sala anterior y se creó una nueva. Vuelve a compartir el código/QR con los estudiantes.');
       send({ type: 'create_session' });
       return;
     }
@@ -196,6 +205,11 @@
     }
 
     var qd = msg.question;
+    // The nested question payload never carries answered/connected (only the
+    // outer host_rejoined message does) — copy them across so onQuestion's
+    // counter reset uses the real in-progress count instead of forcing 0.
+    qd.answered = msg.answered;
+    qd.connected = msg.connected;
     if (msg.state === 'question') {
       if (msg.phase === 'reading') {
         qd.read_time = msg.read_time_remaining || 0;
@@ -359,11 +373,14 @@
 
     // Reset chart (build dynamic bar rows)
     buildChart(msg.options || []);
-    // Counter resets to 0/<connected> — `connected` rides on the question
-    // message; fall back to the last known denominator on a host rejoin
-    // (where the question payload is nested and lacks it).
+    // A fresh question always carries a real `answered` of 0 from the
+    // server. A host-rejoin repaint of an in-progress question carries the
+    // true in-progress count instead (copied onto msg by onHostRejoined) —
+    // using it here, rather than hardcoding 0, is what keeps a mid-question
+    // host reconnect from wiping the numerator back to zero. `connected`
+    // falls back to the last known denominator only if truly absent.
     updateAnswerProgress({
-      answered: 0,
+      answered: typeof msg.answered === 'number' ? msg.answered : 0,
       connected: typeof msg.connected === 'number' ? msg.connected : answerProgress.connected,
     });
 

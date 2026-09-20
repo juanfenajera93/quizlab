@@ -88,3 +88,31 @@ class AssignmentResult(SQLModel, table=True):
     total_questions: int = Field(default=0)
     submitted_at: datetime = Field(default_factory=datetime.utcnow)
     answers_json: str = Field(default="[]")    # per-question review payload
+
+
+# ─── Live session persistence ────────────────────────────────────────────────
+# A room in progress is normally held only in game_manager's in-memory dict.
+# Render (free tier, but also deploys/crashes on any tier) can restart the
+# process mid-class, which would otherwise wipe every active room and
+# permanently strand every connected student. These two tables let
+# GameManager snapshot enough state to rebuild in-memory sessions on the next
+# startup, so a restart looks like an ordinary drop-and-rejoin instead of a
+# dead room. Rows are deleted once the session ends or is garbage-collected.
+
+class LiveSession(SQLModel, table=True):
+    room_code: str = Field(primary_key=True)
+    quiz_id: int = Field(foreign_key="quiz.id")
+    state: str = Field(default="lobby")
+    current_question_index: int = Field(default=-1)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_activity: datetime = Field(default_factory=datetime.utcnow)
+    state_json: str = Field(default="{}")   # everything else — see game_manager._dump_session_state
+
+
+class LivePlayer(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    room_code: str = Field(foreign_key="livesession.room_code", index=True)
+    player_id: str = Field(index=True)
+    nickname: str
+    score: int = Field(default=0)
+    state_json: str = Field(default="{}")   # everything else — see game_manager._dump_player_state

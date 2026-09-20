@@ -1,3 +1,13 @@
+# NOTE: no `plan` is set here, which defaults to Render's free tier — that
+# spins the service down after ~15 min with no inbound HTTP traffic, which
+# can restart the process mid-class (lecture gaps between quiz questions
+# routinely run 10-20 min). Live session/player state is persisted to the
+# database and rehydrated on startup (see game_manager.py's persist_live_*/
+# rehydrate_live), so a restart no longer loses scores or strands connected
+# students. It does NOT eliminate the ~30-60s cold-start delay while a
+# spun-down instance wakes back up — the app is unreachable for everyone
+# during that window. Set `plan: starter` (or higher) below to avoid
+# spin-down entirely for live classes.
 services:
   - type: web
     name: quizlab

@@ -34,7 +34,13 @@ from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
 from database import create_db_and_tables, engine, get_session, _is_postgres
-from game_manager import TEAM_NAMES, game_manager, is_nickname_allowed, _score_answer
+from game_manager import (
+    TEAM_NAMES,
+    build_quiz_data,
+    game_manager,
+    is_nickname_allowed,
+    _score_answer,
+)
 from models import (
     Assignment,
     AssignmentResult,
@@ -78,6 +84,11 @@ async def on_startup():
             "Image uploads are saved to the local filesystem and will NOT persist "
             "between Render deploys. Migrate uploads to Supabase Storage for persistence."
         )
+    # A restart (Render free-tier idle spin-down, a deploy, a crash) would
+    # otherwise wipe every in-progress room. Restore whatever was still live
+    # last time the process ran so students and the host can rejoin the same
+    # room code instead of getting room_not_found.
+    game_manager.rehydrate_live()
     asyncio.create_task(_cleanup_loop())
     asyncio.create_task(_heartbeat_loop())
 
@@ -1221,25 +1232,7 @@ async def ws_host(websocket: WebSocket, quiz_id: int, db: Session = Depends(get_
         await websocket.close()
         return
 
-    quiz_data = {
-        "id": quiz.id,
-        "name": quiz.name,
-        "read_time": quiz.read_time,
-        "scoring_mode": getattr(quiz, "scoring_mode", None) or "speed",
-        "streak_bonus": bool(getattr(quiz, "streak_bonus", False)),
-        "questions": [
-            {
-                "text": q.text,
-                "question_type": q.question_type,
-                "options": json.loads(q.options_json) if q.options_json else [],
-                "correct_json": q.correct_json,
-                "time_limit": q.time_limit,
-                "points": q.points,
-                "image_url": q.image_url,
-            }
-            for q in questions
-        ],
-    }
+    quiz_data = build_quiz_data(quiz, questions)
 
     # The first client message declares intent: "create_session" starts a new
     # room (the old implicit behavior), "host_rejoin" re-attaches to a live one.
@@ -1347,6 +1340,12 @@ async def ws_player(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             t = data.get("type")
+
+            # Any inbound message proves the socket is alive end-to-end, not
+            # just that our last outbound send didn't throw. See
+            # PLAYER_TIMEOUT_SECONDS in game_manager.py.
+            if player_id and room_code:
+                game_manager.touch_player(room_code, player_id)
 
             if t == "room_info":
                 # Pre-join probe: lets the client show the roster picker (or a
