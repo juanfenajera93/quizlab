@@ -585,16 +585,36 @@
 .toast.success { border-color: var(--lime); color: var(--lime); }
 .toast.error   { border-color: var(--answer-a); color: var(--answer-a); }
 
-/* CSV error list */
-.csv-errors {
+/* CSV import report */
+.csv-report {
   margin-top: 12px;
   padding: 12px;
-  background: color-mix(in srgb, var(--answer-a) 10%, transparent);
-  border: 1px solid var(--answer-a);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
-  color: var(--answer-a);
+  overflow-x: auto;
 }
+.csv-report-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.csv-report-title { margin: 12px 0 6px; font-weight: 600; }
+.csv-report-title.err  { color: var(--answer-a); }
+.csv-report-title.warn { color: var(--answer-c); }
+.csv-report-title.ok   { color: var(--lime); }
+.csv-report-table { width: 100%; border-collapse: collapse; }
+.csv-report-table th,
+.csv-report-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.csv-report-table th { color: var(--text-muted); font-weight: 500; }
+.csv-report-table td:nth-child(3) { word-break: break-all; max-width: 220px; }
 
 /* Add Question button in list header */
 .add-q-btn {

@@ -36,6 +36,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
+import question_spec
 from database import create_db_and_tables, engine, get_session, _is_postgres
 from game_manager import (
     TEAM_NAMES,
@@ -1067,24 +1068,29 @@ async def upload_image(request: Request, file: UploadFile = File(...)):
     return JSONResponse({"url": f"/uploads/{filename}"})
 
 
-# ─── CSV template & import ───────────────────────────────────────────────────
+# ─── CSV template, AI prompt & import ───────────────────────────────────────
+# All three are generated from question_spec.py (single source of truth for
+# columns, question types and limits).
 
 @app.get("/admin/csv-template")
 async def csv_template(request: Request):
     if not request.session.get("admin"):
         raise HTTPException(status_code=401)
-    lines = [
-        "question,type,option_1,option_2,option_3,option_4,option_5,option_6,correct,time_limit,points,image_url",
-        "¿Cuánto es 2 + 2?,mc,3,4,5,6,,,B,20,100,",
-        "¿El cielo es azul?,tf,Verdadero,Falso,,,,,A,10,200,",
-        "Selecciona los números pares,ms,1,2,3,4,,,\"B,D\",30,200,",
-        "¿Cuál es tu color favorito?,poll,Rojo,Azul,Verde,,,,,20,100,",
-        "Ordena: menor a mayor,order,3,1,4,2,,,,30,300,",
-    ]
     return Response(
-        content="\n".join(lines),
-        media_type="text/csv",
+        content=question_spec.build_template_csv(),
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=quizlab_template.csv"},
+    )
+
+
+@app.get("/admin/ai-prompt")
+async def ai_prompt(request: Request):
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=401)
+    return Response(
+        content=question_spec.build_ai_prompt().encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=quizlab_ai_prompt.md"},
     )
 
 
@@ -1092,128 +1098,8 @@ async def csv_template(request: Request):
 async def import_csv(request: Request, file: UploadFile = File(...)):
     if not request.session.get("admin"):
         raise HTTPException(status_code=401)
-    raw = await file.read()
-    try:
-        text_content = raw.decode("utf-8-sig")
-    except Exception:
-        return JSONResponse({"error": "Could not decode file as UTF-8"}, status_code=400)
-
-    reader = csv.DictReader(io.StringIO(text_content))
-    fieldnames = set(reader.fieldnames or [])
-
-    # Detect format: new (option_1) vs old (option_a)
-    is_new_format = "option_1" in fieldnames
-    is_old_format = "option_a" in fieldnames
-
-    if not is_new_format and not is_old_format:
-        # Neither format — require at least question column
-        if "question" not in fieldnames:
-            return JSONResponse({"error": "Missing 'question' column"}, status_code=400)
-
-    letter_to_idx = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5}
-    questions, errors = [], []
-
-    for i, row in enumerate(reader, start=2):
-        q_text = (row.get("question") or "").strip()
-        if not q_text:
-            errors.append(f"Row {i}: empty question text, skipped")
-            continue
-
-        # Determine type
-        q_type = (row.get("type") or "mc").strip().lower()
-        if q_type not in ("mc", "tf", "ms", "poll", "order", "wordcloud"):
-            q_type = "mc"
-
-        # Collect options
-        if is_new_format or "option_1" in fieldnames:
-            opts = []
-            for k in range(1, 7):
-                v = (row.get(f"option_{k}") or "").strip()
-                if v:
-                    opts.append(v)
-        else:
-            # Old format: option_a .. option_d
-            opts = []
-            for letter in ("a", "b", "c", "d"):
-                v = (row.get(f"option_{letter}") or "").strip()
-                if v:
-                    opts.append(v)
-
-        if q_type == "tf" and len(opts) < 2:
-            opts = ["Verdadero", "Falso"]
-
-        if q_type == "wordcloud":
-            opts = []
-
-        if q_type not in ("poll", "order", "wordcloud") and len(opts) < 2:
-            errors.append(f"Row {i}: need at least 2 options, skipped")
-            continue
-
-        # Parse correct field
-        correct_str = (row.get("correct") or "").strip()
-        correct_json = ""
-
-        if q_type in ("mc", "tf"):
-            correct_upper = correct_str.upper()
-            if correct_upper in letter_to_idx:
-                correct_json = str(letter_to_idx[correct_upper])
-            elif correct_str.isdigit():
-                correct_json = correct_str
-            else:
-                errors.append(f"Row {i}: invalid 'correct' value '{correct_str}', defaulting to A")
-                correct_json = "0"
-
-        elif q_type == "ms":
-            # Expect "A,C" or "B,D" etc.
-            parts = [p.strip().upper() for p in correct_str.replace(";", ",").split(",") if p.strip()]
-            indices = []
-            for p in parts:
-                if p in letter_to_idx:
-                    indices.append(letter_to_idx[p])
-                elif p.isdigit():
-                    indices.append(int(p))
-            correct_json = json.dumps(sorted(set(indices))) if indices else "[]"
-
-        elif q_type == "poll":
-            correct_json = ""
-
-        elif q_type == "wordcloud":
-            correct_json = ""
-
-        elif q_type == "order":
-            # The input order is the correct order; correct_json = [0,1,...,n-1]
-            correct_json = json.dumps(list(range(len(opts))))
-
-        # Time limit
-        try:
-            tl = int(row.get("time_limit") or 20)
-            tl = max(5, min(120, tl))
-        except (ValueError, TypeError):
-            tl = 20
-
-        # Points
-        try:
-            default_pts = 0 if q_type == "wordcloud" else 100
-            pts = int(row.get("points") or default_pts)
-            pts = max(0, pts)
-        except (ValueError, TypeError):
-            pts = 0 if q_type == "wordcloud" else 100
-
-        image_url = (row.get("image_url") or "").strip() or None
-
-        questions.append({
-            "text": q_text,
-            "question_type": q_type,
-            "options": opts,
-            "correct_json": correct_json,
-            "time_limit": tl,
-            "points": pts,
-            "image_url": image_url,
-        })
-
-    if errors and not questions:
-        return JSONResponse({"error": "\n".join(errors)}, status_code=400)
-    return JSONResponse({"questions": questions, "errors": errors})
+    result = question_spec.parse_csv(await file.read())
+    return JSONResponse(result.as_dict())
 
 
 # ─── Host ────────────────────────────────────────────────────────────────────

@@ -45,9 +45,9 @@ Then open [http://localhost:8000](http://localhost:8000) — you'll be redirecte
 3. Enter a quiz name and optional course tag (e.g. `ADM-3083`).
 4. Add questions one by one using the form on the right, or bulk-import via CSV.
 5. For each question you can set:
-   - Question type: **Multiple Choice** (A–D) or **True/False**
+   - Question type: multiple choice, true/false, multiple select, poll, ordering or word cloud
    - Time limit: 10 / 20 / 30 seconds
-   - Points: 100 / 200 / 500
+   - Points: 100 / 200 / 500, or any custom value from 0 to 1000
    - An image (drag-and-drop upload or paste a URL)
 6. Reorder questions by dragging the ⠿ handle.
 7. Click **Save Quiz**.
@@ -62,28 +62,63 @@ Then open [http://localhost:8000](http://localhost:8000) — you'll be redirecte
 6. Click **Next →** to advance to the next question.
 7. The final leaderboard shows at the end with confetti.
 
-## CSV Import Format
+## CSV Import and AI-Generated Questions
 
-Download the template from the admin panel (↓ Template button) or use this structure:
+In the quiz editor, below the question list:
 
-| Column | Description | Valid Values |
+- **Download CSV template**: header row plus one data-analytics example per
+  question type (`mc`, `tf`, `ms`, `poll`, `order`, `wordcloud`). UTF-8 with
+  BOM, **separated by semicolons (`;`)** so it opens straight into columns in
+  Excel with Spanish regional settings.
+- **Download AI prompt**: a Markdown file (`quizlab_ai_prompt.md`) to give any
+  AI assistant together with your class material. It explains every column
+  and type, how `correct` is encoded, point and time ranges, image URL rules,
+  examples, and a self-check list. The AI answers with a CSV in the template
+  format.
+- **Import CSV**: accepts `;` or `,` separators (auto-detected from the header
+  row) and UTF-8 or Windows-1252 (Excel's plain "CSV" save). Rows with errors
+  are skipped and listed with their row number, column, value and reason; rows
+  with warnings are imported with the adjustment shown. Imported questions are
+  added to the editor; click **Save Quiz** to keep them.
+
+Format summary (letters A-F refer to `option_1`..`option_6`):
+
+| `type` | Options | `correct` |
 |---|---|---|
-| `question` | Question text | Any text |
-| `option_a` | Answer option A | Any text |
-| `option_b` | Answer option B | Any text |
-| `option_c` | Answer option C (omit for True/False) | Any text or blank |
-| `option_d` | Answer option D (omit for True/False) | Any text or blank |
-| `correct` | Correct answer letter | `A`, `B`, `C`, or `D` |
-| `time_limit` | Seconds per question | `10`, `20`, or `30` |
-| `points` | Points awarded for correct answer | `100`, `200`, or `500` |
-| `image_url` | Optional image URL | URL or blank |
+| `mc` | 2-6 | one letter, e.g. `B` |
+| `tf` | exactly 2 (blank = Verdadero/Falso) | `A` or `B` |
+| `ms` | 2-6 | all correct letters, e.g. `A,C,D` |
+| `poll` | 2-6 | blank |
+| `order` | 2-6, written in the correct order | blank |
+| `wordcloud` | none | blank (always 0 points) |
 
-**Example:**
-```csv
-question,option_a,option_b,option_c,option_d,correct,time_limit,points,image_url
-What is 2+2?,3,4,5,6,B,20,100,
-The sky is blue,True,False,,,A,10,200,
+`time_limit`: whole seconds 5-120. `points`: whole number 0-1000.
+`image_url`: blank or a direct public `https://` link to an image file. The
+legacy `option_a`..`option_d` format (no `type` column) still imports as `mc`.
+
+### Where the format is defined
+
+`question_spec.py` is the single source of truth: `COLUMNS`,
+`QUESTION_TYPES` (option limits, `correct` encoding, scoring text, time
+guidance, default points and an example row per type) and the numeric limits.
+The template (`build_template_csv`), the AI prompt (`build_ai_prompt`) and
+the importer (`parse_csv`) are all generated from it.
+
+To add a question type, add a `QuestionType` entry there; the template, AI
+prompt and importer update automatically. The game engine
+(`game_manager._score_answer`), player/host JS and the editor UI still need
+their own support. `tests/test_csv_roundtrip.py` fails if a type's example
+answer is not scored as correct by the game engine.
+
+### Tests
+
+```bash
+venv\Scripts\python -m unittest discover tests -v
 ```
+
+Covers the template -> import round trip (unit and end-to-end over HTTP with
+a throwaway SQLite DB), both separators, both encodings, and row/column error
+reporting.
 
 ## Deploy to Render.com
 

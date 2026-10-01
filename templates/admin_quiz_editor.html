@@ -81,13 +81,16 @@
 
       <div class="import-bar">
         <p>Bulk import via CSV</p>
-        <a href="/admin/csv-template" class="btn btn-ghost btn-sm" download>↓ Template</a>
+        <a href="/admin/csv-template" class="btn btn-ghost btn-sm" download
+           title="Header + one example per question type (UTF-8, separated by ;)">↓ Download CSV template</a>
+        <a href="/admin/ai-prompt" class="btn btn-ghost btn-sm" download
+           title="Give this file and your class material to any AI assistant to get questions in the template format">↓ Download AI prompt</a>
         <label class="btn btn-ghost btn-sm" style="cursor:pointer; margin:0">
           ↑ Import CSV
           <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="handleCSVImport(this)">
         </label>
       </div>
-      <div id="csv-errors" class="csv-errors hidden"></div>
+      <div id="csv-report" class="csv-report hidden"></div>
     </div>
   </div>
 </div>
@@ -175,6 +178,9 @@
       <label class="radio-btn"><input type="radio" name="q-pts" value="100" checked> 100</label>
       <label class="radio-btn"><input type="radio" name="q-pts" value="200"> 200</label>
       <label class="radio-btn"><input type="radio" name="q-pts" value="500"> 500</label>
+      <span style="color:var(--text-muted);font-size:13px;align-self:center">o</span>
+      <input type="number" id="points-custom" min="0" max="1000" step="1" placeholder="—"
+             style="width:72px;padding:6px 8px;font-size:14px;text-align:center">
     </div>
     <label style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:normal;font-weight:400;color:var(--text-muted)">
       <input type="checkbox" id="no-points-check" onchange="onNoPointsChange()">
@@ -262,6 +268,15 @@ function initCustomTimeInputs() {
       if (timeLimitCustom) timeLimitCustom.value = '';
     });
   });
+
+  // Points
+  var pointsCustom = document.getElementById('points-custom');
+  pointsCustom.addEventListener('input', function() {
+    document.querySelectorAll('input[name="q-pts"]').forEach(function(r) { r.checked = false; });
+  });
+  document.querySelectorAll('input[name="q-pts"]').forEach(function(r) {
+    r.addEventListener('change', function() { pointsCustom.value = ''; });
+  });
 }
 
 function getReadTime() {
@@ -282,6 +297,17 @@ function getTimeLimit() {
   }
   var checked = document.querySelector('input[name="q-time"]:checked');
   return checked ? parseInt(checked.value) : 20;
+}
+
+// Points: preset radio or custom 0-1000; null if the custom value is invalid.
+function getPoints() {
+  var customEl = document.getElementById('points-custom');
+  if (customEl && customEl.value !== '') {
+    var v = Number(customEl.value);
+    return (Number.isInteger(v) && v >= 0 && v <= 1000) ? v : null;
+  }
+  var checked = document.querySelector('input[name="q-pts"]:checked');
+  return checked ? parseInt(checked.value) : 100;
 }
 
 function setTimeLimitUI(tl) {
@@ -338,7 +364,7 @@ function renderQuestions() {
     item.addEventListener('drop', function(e) { e.preventDefault(); onDrop(i); });
     item.addEventListener('dragend', function() { onDragEnd(); });
 
-    var pts = q.points || 100;
+    var pts = (q.points === undefined || q.points === null) ? 100 : q.points;
     var tl = q.time_limit || 20;
     var qType = q.question_type || 'mc';
     var typeLabels = { mc: 'MC', tf: 'T/F', ms: 'Multi', poll: 'Poll', order: 'Orden', wordcloud: 'WCloud' };
@@ -620,11 +646,17 @@ function openForm(q, idx) {
   if (noPointsEl) noPointsEl.checked = isNoPoints;
   if (ptsGrp) {
     ptsGrp.style.opacity = isNoPoints ? '0.4' : '1';
-    ptsGrp.querySelectorAll('input[type="radio"]').forEach(function(r) { r.disabled = isNoPoints; });
+    ptsGrp.querySelectorAll('input').forEach(function(r) { r.disabled = isNoPoints; });
   }
-  if (!isNoPoints) {
+  document.querySelectorAll('input[name="q-pts"]').forEach(function(r) { r.checked = false; });
+  var ptsCustom = document.getElementById('points-custom');
+  ptsCustom.value = '';
+  if (isNoPoints) {
+    document.querySelector('input[name="q-pts"][value="100"]').checked = true;
+  } else {
     var ptsRadio = document.querySelector('input[name="q-pts"][value="' + pts + '"]');
     if (ptsRadio) ptsRadio.checked = true;
+    else ptsCustom.value = pts;   // e.g. 300 or 750 from a CSV import
   }
 
   // Image
@@ -646,7 +678,7 @@ function onNoPointsChange() {
   var grp = document.getElementById('pts-radio-group');
   if (!grp) return;
   grp.style.opacity = checked ? '0.4' : '1';
-  grp.querySelectorAll('input[type="radio"]').forEach(function(r) { r.disabled = checked; });
+  grp.querySelectorAll('input').forEach(function(r) { r.disabled = checked; });
 }
 
 function onTypeChange(type) {
@@ -667,7 +699,7 @@ function onTypeChange(type) {
     if (noPointsEl) { noPointsEl.checked = true; noPointsEl.disabled = true; }
     if (ptsGrp) {
       ptsGrp.style.opacity = '0.4';
-      ptsGrp.querySelectorAll('input[type="radio"]').forEach(function(r) { r.disabled = true; });
+      ptsGrp.querySelectorAll('input').forEach(function(r) { r.disabled = true; });
     }
     return;
   }
@@ -706,7 +738,8 @@ function saveQuestion() {
   var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
   var tl = getTimeLimit();
   var noPointsChk = document.getElementById('no-points-check');
-  var pts = (noPointsChk && noPointsChk.checked) ? 0 : parseInt((document.querySelector('input[name="q-pts"]:checked') || {}).value || '100');
+  var pts = (noPointsChk && noPointsChk.checked) ? 0 : getPoints();
+  if (pts === null) { showToast('Points must be a whole number from 0 to 1000', 'error'); return; }
 
   // Validate options
   var opts = currentOptions.slice();
@@ -822,27 +855,52 @@ function handleCSVImport(input) {
   var formData = new FormData();
   formData.append('file', file);
   fetch('/admin/import-csv', { method: 'POST', body: formData })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .then(function(data) {
-      if (data.error) { showCsvErrors([data.error]); return; }
-      if (data.errors && data.errors.length) {
-        showCsvErrors(data.errors);
-      } else {
-        document.getElementById('csv-errors').classList.add('hidden');
-      }
-      if (data.questions && data.questions.length) {
+      var imported = (data.questions || []).length;
+      if (imported) {
         questions = questions.concat(data.questions);
         renderQuestions();
-        showToast(data.questions.length + ' questions imported', 'success');
+        showToast(imported + ' questions imported — click Save Quiz to keep them', 'success');
+      } else {
+        showToast('No questions imported', 'error');
       }
+      showCsvReport(file.name, data);
     })
     .catch(function() { showToast('Import failed', 'error'); });
   input.value = '';
 }
 
-function showCsvErrors(errors) {
-  var el = document.getElementById('csv-errors');
-  el.innerHTML = '<strong>Import warnings:</strong><br>' + errors.map(escapeHtml).join('<br>');
+// Row-by-row report: errors (row skipped) and warnings (imported, adjusted).
+function showCsvReport(fileName, data) {
+  var el = document.getElementById('csv-report');
+  var errors = data.errors || [], warnings = data.warnings || [];
+  var sepName = { ';': 'semicolon (;)', ',': 'comma (,)' }[data.delimiter] || '—';
+  var html = '<div class="csv-report-summary"><span><strong>' + escapeHtml(fileName) + '</strong>: ' +
+    (data.questions || []).length + ' imported, ' + errors.length + ' row(s) skipped, ' +
+    warnings.length + ' warning(s). Separator detected: ' + sepName + '.</span>' +
+    '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'csv-report\').classList.add(\'hidden\')">✕</button></div>';
+
+  function table(title, cls, items) {
+    if (!items.length) return '';
+    return '<div class="csv-report-title ' + cls + '">' + title + '</div>' +
+      '<table class="csv-report-table"><thead><tr><th>Row</th><th>Column</th><th>Value</th><th>Problem</th></tr></thead><tbody>' +
+      items.map(function(it) {
+        return '<tr><td>' + (it.row == null ? '—' : it.row) + '</td>' +
+          '<td>' + escapeHtml(it.column || '—') + '</td>' +
+          '<td>' + escapeHtml(it.value || '') + '</td>' +
+          '<td>' + escapeHtml(it.message) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  html += table('Errors — these rows were NOT imported. Fix them and import the file again (only the fixed rows, to avoid duplicates).', 'err', errors);
+  html += table('Warnings — imported with the adjustment shown', 'warn', warnings);
+  if (!errors.length && !warnings.length) {
+    html += '<div class="csv-report-title ok">No problems found.</div>';
+  }
+  el.innerHTML = html;
   el.classList.remove('hidden');
 }
 
