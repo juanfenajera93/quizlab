@@ -1,13 +1,11 @@
-/* QuizLab live points counter — client mirror of game_manager.speed_points()
+/* QuizLab live points counter — client mirror of scoring.py speed_points()
    and streak_bonus(). Display only: the server scores every answer and its
    numbers (answer_ack, reveal) always win. Keep the formulas in step with
-   game_manager.py. */
+   scoring.py. */
 (function () {
   'use strict';
 
   var SPEED_FLOOR = 0.5;
-  var SCORED_TYPES = ['mc', 'tf', 'ms', 'order'];   // = STREAK_TYPES
-  var PARTIAL_TYPES = ['ms', 'order'];
 
   function speedPoints(base, timeLimit, timeTaken, mode) {
     if (mode === 'accuracy') return base;
@@ -47,12 +45,9 @@
     streakBonus: streakBonus,
     Clock: Clock,
     // Counter shown only for scored types worth something (not poll,
-    // wordcloud or 0-point questions).
-    showsCounter: function (q) {
-      return SCORED_TYPES.indexOf(q.question_type || 'mc') !== -1 && (q.points || 0) > 0;
-    },
-    hasPartialCredit: function (q) {
-      return PARTIAL_TYPES.indexOf(q.question_type || 'mc') !== -1;
-    }
+    // wordcloud or 0-point questions); which types are scored or give
+    // partial credit comes from the type registry (qtypes.js).
+    showsCounter: function (q) { return window.QLTypes.showsCounter(q); },
+    hasPartialCredit: function (q) { return window.QLTypes.hasPartialCredit(q); }
   };
 })();

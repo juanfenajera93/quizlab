@@ -1,0 +1,3204 @@
+{
+ "analytics": {
+  "class_id": null,
+  "leaderboard": [
+   {
+    "nickname": "ana",
+    "player_id": "<ana>",
+    "rank": 1,
+    "score": 1150,
+    "student_id": null,
+    "team": null
+   },
+   {
+    "nickname": "beto",
+    "player_id": "<beto>",
+    "rank": 2,
+    "score": 450,
+    "student_id": null,
+    "team": null
+   },
+   {
+    "nickname": "caro",
+    "player_id": "<caro>",
+    "rank": 3,
+    "score": 0,
+    "student_id": null,
+    "team": null
+   }
+  ],
+  "question_stats": [
+   {
+    "answers_json": "[0, 1, 1, 0]",
+    "avg_time_seconds": 4.25,
+    "correct_count": 1,
+    "question_index": 0,
+    "question_text": "mc question",
+    "question_type": "mc",
+    "total_answers": 2
+   },
+   {
+    "answers_json": "[1, 1]",
+    "avg_time_seconds": 4.25,
+    "correct_count": 1,
+    "question_index": 1,
+    "question_text": "tf question",
+    "question_type": "tf",
+    "total_answers": 2
+   },
+   {
+    "answers_json": "[1, 1, 0, 1]",
+    "avg_time_seconds": 2.5,
+    "correct_count": 1,
+    "question_index": 2,
+    "question_text": "ms question",
+    "question_type": "ms",
+    "total_answers": 2
+   },
+   {
+    "answers_json": "[0, 2, 0]",
+    "avg_time_seconds": 4.25,
+    "correct_count": 2,
+    "question_index": 3,
+    "question_text": "poll question",
+    "question_type": "poll",
+    "total_answers": 2
+   },
+   {
+    "answers_json": "[2]",
+    "avg_time_seconds": 4.25,
+    "correct_count": 1,
+    "question_index": 4,
+    "question_text": "order question",
+    "question_type": "order",
+    "total_answers": 2
+   },
+   {
+    "answers_json": "{\"duplicados\": 2}",
+    "avg_time_seconds": 4.25,
+    "correct_count": 2,
+    "question_index": 5,
+    "question_text": "wordcloud question",
+    "question_type": "wordcloud",
+    "total_answers": 2
+   },
+   {
+    "answers_json": "[1, 0]",
+    "avg_time_seconds": 2.5,
+    "correct_count": 1,
+    "question_index": 6,
+    "question_text": "mc question",
+    "question_type": "mc",
+    "total_answers": 1
+   }
+  ],
+  "room_code": "<ROOM>",
+  "student_count": 3
+ },
+ "homework": {
+  "ana": {
+   "correct_count": 5,
+   "ok": true,
+   "review": [
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "Mediana",
+     "index": 0,
+     "points": 200,
+     "question_type": "mc",
+     "scored": true,
+     "text": "mc question",
+     "your_answer": "Mediana"
+    },
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "Falso",
+     "index": 1,
+     "points": 100,
+     "question_type": "tf",
+     "scored": true,
+     "text": "tf question",
+     "your_answer": "Falso"
+    },
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "Histograma, Caja, Densidad",
+     "index": 2,
+     "points": 300,
+     "question_type": "ms",
+     "scored": true,
+     "text": "ms question",
+     "your_answer": "Histograma, Caja, Densidad"
+    },
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "",
+     "index": 3,
+     "points": 50,
+     "question_type": "poll",
+     "scored": false,
+     "text": "poll question",
+     "your_answer": "Python"
+    },
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "uno → dos → tres → cuatro",
+     "index": 4,
+     "points": 400,
+     "question_type": "order",
+     "scored": true,
+     "text": "order question",
+     "your_answer": "uno → dos → tres → cuatro"
+    },
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "",
+     "index": 5,
+     "points": 0,
+     "question_type": "wordcloud",
+     "scored": false,
+     "text": "wordcloud question",
+     "your_answer": "Duplicados"
+    },
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "a",
+     "index": 6,
+     "points": 0,
+     "question_type": "mc",
+     "scored": true,
+     "text": "mc question",
+     "your_answer": "a"
+    }
+   ],
+   "score": 1050,
+   "total": 7
+  },
+  "beto": {
+   "correct_count": 0,
+   "ok": true,
+   "review": [
+    {
+     "answered": true,
+     "correct": false,
+     "correct_answer": "Mediana",
+     "index": 0,
+     "points": 0,
+     "question_type": "mc",
+     "scored": true,
+     "text": "mc question",
+     "your_answer": "Moda"
+    },
+    {
+     "answered": true,
+     "correct": false,
+     "correct_answer": "Falso",
+     "index": 1,
+     "points": 0,
+     "question_type": "tf",
+     "scored": true,
+     "text": "tf question",
+     "your_answer": "Verdadero"
+    },
+    {
+     "answered": true,
+     "correct": false,
+     "correct_answer": "Histograma, Caja, Densidad",
+     "index": 2,
+     "points": 200,
+     "question_type": "ms",
+     "scored": true,
+     "text": "ms question",
+     "your_answer": "Histograma, Densidad"
+    },
+    {
+     "answered": true,
+     "correct": true,
+     "correct_answer": "",
+     "index": 3,
+     "points": 50,
+     "question_type": "poll",
+     "scored": false,
+     "text": "poll question",
+     "your_answer": "Python"
+    },
+    {
+     "answered": true,
+     "correct": false,
+     "correct_answer": "uno → dos → tres → cuatro",
+     "index": 4,
+     "points": 200,
+     "question_type": "order",
+     "scored": true,
+     "text": "order question",
+     "your_answer": "dos → uno → tres → cuatro"
+    },
+    {
+     "answered": false,
+     "correct": false,
+     "correct_answer": "",
+     "index": 5,
+     "points": 0,
+     "question_type": "wordcloud",
+     "scored": false,
+     "text": "wordcloud question",
+     "your_answer": "—"
+    },
+    {
+     "answered": false,
+     "correct": false,
+     "correct_answer": "a",
+     "index": 6,
+     "points": 0,
+     "question_type": "mc",
+     "scored": true,
+     "text": "mc question",
+     "your_answer": "—"
+    }
+   ],
+   "score": 450,
+   "total": 7
+  },
+  "questions_api": {
+   "ok": true,
+   "questions": [
+    {
+     "image_url": "",
+     "index": 0,
+     "options": [
+      "Media",
+      "Mediana",
+      "Moda",
+      "Rango"
+     ],
+     "points": 200,
+     "question_type": "mc",
+     "text": "mc question"
+    },
+    {
+     "image_url": "",
+     "index": 1,
+     "options": [
+      "Verdadero",
+      "Falso"
+     ],
+     "points": 100,
+     "question_type": "tf",
+     "text": "tf question"
+    },
+    {
+     "image_url": "",
+     "index": 2,
+     "options": [
+      "Histograma",
+      "Caja",
+      "Pastel",
+      "Densidad"
+     ],
+     "points": 300,
+     "question_type": "ms",
+     "text": "ms question"
+    },
+    {
+     "image_url": "",
+     "index": 3,
+     "options": [
+      "Excel",
+      "Python",
+      "R"
+     ],
+     "points": 50,
+     "question_type": "poll",
+     "text": "poll question"
+    },
+    {
+     "image_url": "",
+     "index": 4,
+     "options": [
+      "uno",
+      "dos",
+      "tres",
+      "cuatro"
+     ],
+     "points": 400,
+     "question_type": "order",
+     "text": "order question"
+    },
+    {
+     "image_url": "",
+     "index": 5,
+     "options": [],
+     "points": 0,
+     "question_type": "wordcloud",
+     "text": "wordcloud question"
+    },
+    {
+     "image_url": "",
+     "index": 6,
+     "options": [
+      "a",
+      "b"
+     ],
+     "points": 0,
+     "question_type": "mc",
+     "text": "mc question"
+    }
+   ]
+  }
+ },
+ "host": [
+  {
+   "answered": 0,
+   "connected": 1,
+   "count": 1,
+   "players": [
+    {
+     "connected": true,
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "team": null
+    }
+   ],
+   "team_count": null,
+   "type": "player_update"
+  },
+  {
+   "answered": 0,
+   "connected": 2,
+   "count": 2,
+   "players": [
+    {
+     "connected": true,
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "team": null
+    },
+    {
+     "connected": true,
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "team": null
+    }
+   ],
+   "team_count": null,
+   "type": "player_update"
+  },
+  {
+   "answered": 0,
+   "connected": 3,
+   "count": 3,
+   "players": [
+    {
+     "connected": true,
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "team": null
+    },
+    {
+     "connected": true,
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "team": null
+    },
+    {
+     "connected": true,
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "team": null
+    }
+   ],
+   "team_count": null,
+   "type": "player_update"
+  },
+  {
+   "answer_starts_in": 0.0,
+   "answered": 0,
+   "connected": 3,
+   "full_time_limit": 20,
+   "id": 0,
+   "image_url": "",
+   "number": 1,
+   "options": [
+    "Media",
+    "Mediana",
+    "Moda",
+    "Rango"
+   ],
+   "points": 200,
+   "question_type": "mc",
+   "read_time": 0,
+   "scoring_mode": "speed",
+   "streak_bonus": true,
+   "text": "mc question",
+   "time_limit": 20,
+   "total": 7,
+   "type": "question"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "counts": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "answered": 2,
+   "connected": 3,
+   "counts": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "correct_index": 1,
+   "correct_json": "1",
+   "distribution": {
+    "answered": 2,
+    "counts": [
+     0,
+     1,
+     1,
+     0
+    ],
+    "players": 3
+   },
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 175,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "question_type": "mc",
+   "type": "reveal"
+  },
+  {
+   "answer_starts_in": 0.0,
+   "answered": 0,
+   "connected": 3,
+   "full_time_limit": 15,
+   "id": 1,
+   "image_url": "",
+   "number": 2,
+   "options": [
+    "Verdadero",
+    "Falso"
+   ],
+   "points": 100,
+   "question_type": "tf",
+   "read_time": 0,
+   "scoring_mode": "speed",
+   "streak_bonus": true,
+   "text": "tf question",
+   "time_limit": 15,
+   "total": 7,
+   "type": "question"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "counts": [
+    1,
+    1
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "answered": 2,
+   "connected": 3,
+   "counts": [
+    1,
+    1
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "correct_index": 1,
+   "correct_json": "1",
+   "distribution": {
+    "answered": 2,
+    "counts": [
+     1,
+     1
+    ],
+    "players": 3
+   },
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 268,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "question_type": "tf",
+   "type": "reveal"
+  },
+  {
+   "answer_starts_in": 0.0,
+   "answered": 0,
+   "connected": 3,
+   "full_time_limit": 30,
+   "id": 2,
+   "image_url": "",
+   "number": 3,
+   "options": [
+    "Histograma",
+    "Caja",
+    "Pastel",
+    "Densidad"
+   ],
+   "points": 300,
+   "question_type": "ms",
+   "read_time": 0,
+   "scoring_mode": "speed",
+   "streak_bonus": true,
+   "text": "ms question",
+   "time_limit": 30,
+   "total": 7,
+   "type": "question"
+  },
+  {
+   "answered": 0,
+   "connected": 3,
+   "counts": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "counts": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "counts": [
+    2,
+    1,
+    0,
+    2
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "correct_index": -1,
+   "correct_indices": [
+    0,
+    1,
+    3
+   ],
+   "correct_json": "[0, 1, 3]",
+   "distribution": {
+    "answered": 2,
+    "counts": [
+     2,
+     1,
+     0,
+     2
+    ],
+    "players": 3
+   },
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 603,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 200,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "question_type": "ms",
+   "type": "reveal"
+  },
+  {
+   "answer_starts_in": 0.0,
+   "answered": 0,
+   "connected": 3,
+   "full_time_limit": 20,
+   "id": 3,
+   "image_url": "",
+   "number": 4,
+   "options": [
+    "Excel",
+    "Python",
+    "R"
+   ],
+   "points": 50,
+   "question_type": "poll",
+   "read_time": 0,
+   "scoring_mode": "speed",
+   "streak_bonus": true,
+   "text": "poll question",
+   "time_limit": 20,
+   "total": 7,
+   "type": "question"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "counts": [
+    0,
+    2,
+    0
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "answered": 2,
+   "connected": 3,
+   "counts": [
+    0,
+    2,
+    0
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "correct_index": -1,
+   "correct_json": "",
+   "distribution": {
+    "answered": 2,
+    "counts": [
+     0,
+     2,
+     0
+    ],
+    "players": 3
+   },
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 653,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 250,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "question_type": "poll",
+   "type": "reveal"
+  },
+  {
+   "answer_starts_in": 0.0,
+   "answered": 0,
+   "connected": 3,
+   "full_time_limit": 45,
+   "id": 4,
+   "image_url": "",
+   "number": 5,
+   "options": [
+    "dos",
+    "cuatro",
+    "tres",
+    "uno"
+   ],
+   "points": 400,
+   "question_type": "order",
+   "read_time": 0,
+   "scoring_mode": "speed",
+   "streak_bonus": true,
+   "text": "order question",
+   "time_limit": 45,
+   "total": 7,
+   "type": "question"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "counts": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "answered": 2,
+   "connected": 3,
+   "counts": [
+    2,
+    0,
+    0,
+    0
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "correct_index": -1,
+   "correct_json": "[3, 0, 2, 1]",
+   "correct_options": [
+    "uno",
+    "dos",
+    "tres",
+    "cuatro"
+   ],
+   "distribution": {
+    "answered": 2,
+    "full_correct": 1,
+    "in_place": [
+     1,
+     1,
+     2,
+     2
+    ],
+    "players": 3
+   },
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 1150,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 450,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "question_type": "order",
+   "type": "reveal"
+  },
+  {
+   "answer_starts_in": 0.0,
+   "answered": 0,
+   "connected": 3,
+   "full_time_limit": 30,
+   "id": 5,
+   "image_url": "",
+   "number": 6,
+   "options": [],
+   "points": 0,
+   "question_type": "wordcloud",
+   "read_time": 0,
+   "scoring_mode": "speed",
+   "streak_bonus": true,
+   "text": "wordcloud question",
+   "time_limit": 30,
+   "total": 7,
+   "type": "question"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "question_id": 5,
+   "type": "wordcloud_update",
+   "words": [
+    "Duplicados"
+   ]
+  },
+  {
+   "answered": 2,
+   "connected": 3,
+   "question_id": 5,
+   "type": "wordcloud_update",
+   "words": [
+    "Duplicados",
+    "duplicados"
+   ]
+  },
+  {
+   "correct_index": -1,
+   "correct_json": "",
+   "distribution": {
+    "answered": 2,
+    "players": 3
+   },
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 1150,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 450,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "question_type": "wordcloud",
+   "type": "reveal",
+   "words": {
+    "duplicados": 2
+   }
+  },
+  {
+   "answer_starts_in": 0.0,
+   "answered": 0,
+   "connected": 3,
+   "full_time_limit": 20,
+   "id": 6,
+   "image_url": "",
+   "number": 7,
+   "options": [
+    "a",
+    "b"
+   ],
+   "points": 0,
+   "question_type": "mc",
+   "read_time": 0,
+   "scoring_mode": "speed",
+   "streak_bonus": true,
+   "text": "mc question",
+   "time_limit": 20,
+   "total": 7,
+   "type": "question"
+  },
+  {
+   "answered": 1,
+   "connected": 3,
+   "counts": [
+    1,
+    0
+   ],
+   "type": "answer_counts"
+  },
+  {
+   "correct_index": 0,
+   "correct_json": "0",
+   "distribution": {
+    "answered": 1,
+    "counts": [
+     1,
+     0
+    ],
+    "players": 3
+   },
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 1150,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 450,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "question_type": "mc",
+   "type": "reveal"
+  },
+  {
+   "leaderboard": [
+    {
+     "nickname": "ana",
+     "player_id": "<ana>",
+     "rank": 1,
+     "score": 1150,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "beto",
+     "player_id": "<beto>",
+     "rank": 2,
+     "score": 450,
+     "student_id": null,
+     "team": null
+    },
+    {
+     "nickname": "caro",
+     "player_id": "<caro>",
+     "rank": 3,
+     "score": 0,
+     "student_id": null,
+     "team": null
+    }
+   ],
+   "type": "game_end"
+  }
+ ],
+ "players": {
+  "ana": [
+   {
+    "player_count": 1,
+    "player_list": [
+     {
+      "connected": true,
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "team": null
+     }
+    ],
+    "type": "player_update"
+   },
+   {
+    "player_count": 2,
+    "player_list": [
+     {
+      "connected": true,
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "team": null
+     }
+    ],
+    "type": "player_update"
+   },
+   {
+    "player_count": 3,
+    "player_list": [
+     {
+      "connected": true,
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "team": null
+     }
+    ],
+    "type": "player_update"
+   },
+   {
+    "type": "game_start"
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 0,
+    "image_url": "",
+    "number": 1,
+    "options": [
+     "Media",
+     "Mediana",
+     "Moda",
+     "Rango"
+    ],
+    "points": 200,
+    "question_type": "mc",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "mc question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "max_points": 175,
+    "question_id": 0,
+    "streak_bonus": 0,
+    "time_taken": 2.5,
+    "type": "answer_ack"
+   },
+   {
+    "breakdown": {
+     "base": 200,
+     "kind": "speed",
+     "question_points": 175,
+     "speed_factor": 0.875,
+     "streak": 1,
+     "streak_bonus": 0,
+     "time_taken": 2.5,
+     "total": 175
+    },
+    "correct_index": 1,
+    "correct_json": "1",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 175,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 175,
+    "question_type": "mc",
+    "rank": 1,
+    "scoring_mode": "speed",
+    "streak": 1,
+    "total_players": 3,
+    "total_score": 175,
+    "type": "reveal",
+    "your_answer": 1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 15,
+    "id": 1,
+    "image_url": "",
+    "number": 2,
+    "options": [
+     "Verdadero",
+     "Falso"
+    ],
+    "points": 100,
+    "question_type": "tf",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "tf question",
+    "time_limit": 15,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "max_points": 83,
+    "question_id": 1,
+    "streak_bonus": 10,
+    "time_taken": 2.5,
+    "type": "answer_ack"
+   },
+   {
+    "breakdown": {
+     "base": 100,
+     "kind": "speed",
+     "question_points": 83,
+     "speed_factor": 0.833,
+     "streak": 2,
+     "streak_bonus": 10,
+     "time_taken": 2.5,
+     "total": 93
+    },
+    "correct_index": 1,
+    "correct_json": "1",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 268,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 93,
+    "question_type": "tf",
+    "rank": 1,
+    "scoring_mode": "speed",
+    "streak": 2,
+    "total_players": 3,
+    "total_score": 268,
+    "type": "reveal",
+    "your_answer": 1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 30,
+    "id": 2,
+    "image_url": "",
+    "number": 3,
+    "options": [
+     "Histograma",
+     "Caja",
+     "Pastel",
+     "Densidad"
+    ],
+    "points": 300,
+    "question_type": "ms",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "ms question",
+    "time_limit": 30,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "max_points": 275,
+    "question_id": 2,
+    "streak_bonus": 60,
+    "time_taken": 2.5,
+    "type": "answer_ack"
+   },
+   {
+    "breakdown": {
+     "base": 300,
+     "kind": "speed",
+     "question_points": 275,
+     "speed_factor": 0.917,
+     "streak": 3,
+     "streak_bonus": 60,
+     "time_taken": 2.5,
+     "total": 335
+    },
+    "correct_index": -1,
+    "correct_json": "[0, 1, 3]",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 603,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 200,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 335,
+    "question_type": "ms",
+    "rank": 1,
+    "scoring_mode": "speed",
+    "streak": 3,
+    "total_players": 3,
+    "total_score": 603,
+    "type": "reveal",
+    "your_answer": [
+     0,
+     1,
+     3
+    ]
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 3,
+    "image_url": "",
+    "number": 4,
+    "options": [
+     "Excel",
+     "Python",
+     "R"
+    ],
+    "points": 50,
+    "question_type": "poll",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "poll question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 50,
+     "kind": "full",
+     "question_points": 50,
+     "streak": 3,
+     "streak_bonus": 0,
+     "total": 50
+    },
+    "correct_index": -1,
+    "correct_json": "",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 653,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 250,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 50,
+    "question_type": "poll",
+    "rank": 1,
+    "scoring_mode": "speed",
+    "streak": 3,
+    "total_players": 3,
+    "total_score": 653,
+    "type": "reveal",
+    "your_answer": 1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 45,
+    "id": 4,
+    "image_url": "",
+    "number": 5,
+    "options": [
+     "dos",
+     "cuatro",
+     "tres",
+     "uno"
+    ],
+    "points": 400,
+    "question_type": "order",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "order question",
+    "time_limit": 45,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "max_points": 377,
+    "question_id": 4,
+    "streak_bonus": 120,
+    "time_taken": 2.5,
+    "type": "answer_ack"
+   },
+   {
+    "breakdown": {
+     "base": 400,
+     "kind": "speed",
+     "question_points": 377,
+     "speed_factor": 0.944,
+     "streak": 4,
+     "streak_bonus": 120,
+     "time_taken": 2.5,
+     "total": 497
+    },
+    "correct_index": -1,
+    "correct_json": "[3, 0, 2, 1]",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 497,
+    "question_type": "order",
+    "rank": 1,
+    "scoring_mode": "speed",
+    "streak": 4,
+    "total_players": 3,
+    "total_score": 1150,
+    "type": "reveal",
+    "your_answer": [
+     3,
+     0,
+     2,
+     1
+    ]
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 30,
+    "id": 5,
+    "image_url": "",
+    "number": 6,
+    "options": [],
+    "points": 0,
+    "question_type": "wordcloud",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "wordcloud question",
+    "time_limit": 30,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 0,
+     "kind": "full",
+     "question_points": 0,
+     "streak": 4,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": -1,
+    "correct_json": "",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": true,
+    "points_earned": 0,
+    "question_type": "wordcloud",
+    "rank": 1,
+    "scoring_mode": "speed",
+    "streak": 4,
+    "total_players": 3,
+    "total_score": 1150,
+    "type": "reveal",
+    "your_answer": -1,
+    "your_text": "Duplicados"
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 6,
+    "image_url": "",
+    "number": 7,
+    "options": [
+     "a",
+     "b"
+    ],
+    "points": 0,
+    "question_type": "mc",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "mc question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 0,
+     "kind": "speed",
+     "question_points": 0,
+     "speed_factor": 0.875,
+     "streak": 5,
+     "streak_bonus": 0,
+     "time_taken": 2.5,
+     "total": 0
+    },
+    "correct_index": 0,
+    "correct_json": "0",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": true,
+    "points_earned": 0,
+    "question_type": "mc",
+    "rank": 1,
+    "scoring_mode": "speed",
+    "streak": 5,
+    "total_players": 3,
+    "total_score": 1150,
+    "type": "reveal",
+    "your_answer": 0
+   },
+   {
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "review": [
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "Mediana",
+      "index": 0,
+      "points": 175,
+      "question_type": "mc",
+      "scored": true,
+      "text": "mc question",
+      "your_answer": "Mediana"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "Falso",
+      "index": 1,
+      "points": 93,
+      "question_type": "tf",
+      "scored": true,
+      "text": "tf question",
+      "your_answer": "Falso"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "Histograma, Caja, Densidad",
+      "index": 2,
+      "points": 335,
+      "question_type": "ms",
+      "scored": true,
+      "text": "ms question",
+      "your_answer": "Histograma, Caja, Densidad"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "",
+      "index": 3,
+      "points": 50,
+      "question_type": "poll",
+      "scored": false,
+      "text": "poll question",
+      "your_answer": "Python"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "uno → dos → tres → cuatro",
+      "index": 4,
+      "points": 497,
+      "question_type": "order",
+      "scored": true,
+      "text": "order question",
+      "your_answer": "uno → dos → tres → cuatro"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "",
+      "index": 5,
+      "points": 0,
+      "question_type": "wordcloud",
+      "scored": false,
+      "text": "wordcloud question",
+      "your_answer": "Duplicados"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "a",
+      "index": 6,
+      "points": 0,
+      "question_type": "mc",
+      "scored": true,
+      "text": "mc question",
+      "your_answer": "a"
+     }
+    ],
+    "type": "game_end"
+   }
+  ],
+  "beto": [
+   {
+    "player_count": 2,
+    "player_list": [
+     {
+      "connected": true,
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "team": null
+     }
+    ],
+    "type": "player_update"
+   },
+   {
+    "player_count": 3,
+    "player_list": [
+     {
+      "connected": true,
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "team": null
+     }
+    ],
+    "type": "player_update"
+   },
+   {
+    "type": "game_start"
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 0,
+    "image_url": "",
+    "number": 1,
+    "options": [
+     "Media",
+     "Mediana",
+     "Moda",
+     "Rango"
+    ],
+    "points": 200,
+    "question_type": "mc",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "mc question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "max_points": 140,
+    "question_id": 0,
+    "streak_bonus": 0,
+    "time_taken": 6.0,
+    "type": "answer_ack"
+   },
+   {
+    "breakdown": {
+     "base": 200,
+     "kind": "wrong",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": 1,
+    "correct_json": "1",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 175,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 0,
+    "question_type": "mc",
+    "rank": 2,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": 2
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 15,
+    "id": 1,
+    "image_url": "",
+    "number": 2,
+    "options": [
+     "Verdadero",
+     "Falso"
+    ],
+    "points": 100,
+    "question_type": "tf",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "tf question",
+    "time_limit": 15,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "max_points": 60,
+    "question_id": 1,
+    "streak_bonus": 0,
+    "time_taken": 6.0,
+    "type": "answer_ack"
+   },
+   {
+    "breakdown": {
+     "base": 100,
+     "kind": "wrong",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": 1,
+    "correct_json": "1",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 268,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 0,
+    "question_type": "tf",
+    "rank": 2,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": 0
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 30,
+    "id": 2,
+    "image_url": "",
+    "number": 3,
+    "options": [
+     "Histograma",
+     "Caja",
+     "Pastel",
+     "Densidad"
+    ],
+    "points": 300,
+    "question_type": "ms",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "ms question",
+    "time_limit": 30,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 300,
+     "hits": 2,
+     "kind": "partial",
+     "parts": 3,
+     "question_points": 200,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 200
+    },
+    "correct_index": -1,
+    "correct_json": "[0, 1, 3]",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 603,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 200,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 200,
+    "question_type": "ms",
+    "rank": 2,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 200,
+    "type": "reveal",
+    "your_answer": [
+     0,
+     3
+    ]
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 3,
+    "image_url": "",
+    "number": 4,
+    "options": [
+     "Excel",
+     "Python",
+     "R"
+    ],
+    "points": 50,
+    "question_type": "poll",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "poll question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 50,
+     "kind": "full",
+     "question_points": 50,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 50
+    },
+    "correct_index": -1,
+    "correct_json": "",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 653,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 250,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 50,
+    "question_type": "poll",
+    "rank": 2,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 250,
+    "type": "reveal",
+    "your_answer": 1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 45,
+    "id": 4,
+    "image_url": "",
+    "number": 5,
+    "options": [
+     "dos",
+     "cuatro",
+     "tres",
+     "uno"
+    ],
+    "points": 400,
+    "question_type": "order",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "order question",
+    "time_limit": 45,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "max_points": 346,
+    "question_id": 4,
+    "streak_bonus": 0,
+    "time_taken": 6.0,
+    "type": "answer_ack"
+   },
+   {
+    "breakdown": {
+     "base": 400,
+     "hits": 2,
+     "kind": "partial",
+     "parts": 4,
+     "question_points": 200,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 200
+    },
+    "correct_index": -1,
+    "correct_json": "[3, 0, 2, 1]",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 200,
+    "question_type": "order",
+    "rank": 2,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 450,
+    "type": "reveal",
+    "your_answer": [
+     0,
+     3,
+     2,
+     1
+    ]
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 30,
+    "id": 5,
+    "image_url": "",
+    "number": 6,
+    "options": [],
+    "points": 0,
+    "question_type": "wordcloud",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "wordcloud question",
+    "time_limit": 30,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 0,
+     "kind": "full",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": -1,
+    "correct_json": "",
+    "is_correct": true,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": true,
+    "points_earned": 0,
+    "question_type": "wordcloud",
+    "rank": 2,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 450,
+    "type": "reveal",
+    "your_answer": -1,
+    "your_text": "duplicados"
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 6,
+    "image_url": "",
+    "number": 7,
+    "options": [
+     "a",
+     "b"
+    ],
+    "points": 0,
+    "question_type": "mc",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "mc question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 0,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": 0,
+    "correct_json": "0",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": true,
+    "points_earned": 0,
+    "question_type": "mc",
+    "rank": 2,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 450,
+    "type": "reveal",
+    "your_answer": -1
+   },
+   {
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "review": [
+     {
+      "answered": true,
+      "correct": false,
+      "correct_answer": "Mediana",
+      "index": 0,
+      "points": 0,
+      "question_type": "mc",
+      "scored": true,
+      "text": "mc question",
+      "your_answer": "Moda"
+     },
+     {
+      "answered": true,
+      "correct": false,
+      "correct_answer": "Falso",
+      "index": 1,
+      "points": 0,
+      "question_type": "tf",
+      "scored": true,
+      "text": "tf question",
+      "your_answer": "Verdadero"
+     },
+     {
+      "answered": true,
+      "correct": false,
+      "correct_answer": "Histograma, Caja, Densidad",
+      "index": 2,
+      "points": 200,
+      "question_type": "ms",
+      "scored": true,
+      "text": "ms question",
+      "your_answer": "Histograma, Densidad"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "",
+      "index": 3,
+      "points": 50,
+      "question_type": "poll",
+      "scored": false,
+      "text": "poll question",
+      "your_answer": "Python"
+     },
+     {
+      "answered": true,
+      "correct": false,
+      "correct_answer": "uno → dos → tres → cuatro",
+      "index": 4,
+      "points": 200,
+      "question_type": "order",
+      "scored": true,
+      "text": "order question",
+      "your_answer": "dos → uno → tres → cuatro"
+     },
+     {
+      "answered": true,
+      "correct": true,
+      "correct_answer": "",
+      "index": 5,
+      "points": 0,
+      "question_type": "wordcloud",
+      "scored": false,
+      "text": "wordcloud question",
+      "your_answer": "duplicados"
+     },
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "a",
+      "index": 6,
+      "points": 0,
+      "question_type": "mc",
+      "scored": true,
+      "text": "mc question",
+      "your_answer": "—"
+     }
+    ],
+    "type": "game_end"
+   }
+  ],
+  "caro": [
+   {
+    "player_count": 3,
+    "player_list": [
+     {
+      "connected": true,
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "team": null
+     },
+     {
+      "connected": true,
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "team": null
+     }
+    ],
+    "type": "player_update"
+   },
+   {
+    "type": "game_start"
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 0,
+    "image_url": "",
+    "number": 1,
+    "options": [
+     "Media",
+     "Mediana",
+     "Moda",
+     "Rango"
+    ],
+    "points": 200,
+    "question_type": "mc",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "mc question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 200,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": 1,
+    "correct_json": "1",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 175,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 0,
+    "question_type": "mc",
+    "rank": 3,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": -1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 15,
+    "id": 1,
+    "image_url": "",
+    "number": 2,
+    "options": [
+     "Verdadero",
+     "Falso"
+    ],
+    "points": 100,
+    "question_type": "tf",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "tf question",
+    "time_limit": 15,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 100,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": 1,
+    "correct_json": "1",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 268,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 0,
+    "question_type": "tf",
+    "rank": 3,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": -1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 30,
+    "id": 2,
+    "image_url": "",
+    "number": 3,
+    "options": [
+     "Histograma",
+     "Caja",
+     "Pastel",
+     "Densidad"
+    ],
+    "points": 300,
+    "question_type": "ms",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "ms question",
+    "time_limit": 30,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 300,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": -1,
+    "correct_json": "[0, 1, 3]",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 603,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 200,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 0,
+    "question_type": "ms",
+    "rank": 3,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": -1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 3,
+    "image_url": "",
+    "number": 4,
+    "options": [
+     "Excel",
+     "Python",
+     "R"
+    ],
+    "points": 50,
+    "question_type": "poll",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "poll question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 50,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": -1,
+    "correct_json": "",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 653,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 250,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 0,
+    "question_type": "poll",
+    "rank": 3,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": -1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 45,
+    "id": 4,
+    "image_url": "",
+    "number": 5,
+    "options": [
+     "dos",
+     "cuatro",
+     "tres",
+     "uno"
+    ],
+    "points": 400,
+    "question_type": "order",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "order question",
+    "time_limit": 45,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 400,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": -1,
+    "correct_json": "[3, 0, 2, 1]",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": false,
+    "points_earned": 0,
+    "question_type": "order",
+    "rank": 3,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": -1
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 30,
+    "id": 5,
+    "image_url": "",
+    "number": 6,
+    "options": [],
+    "points": 0,
+    "question_type": "wordcloud",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "wordcloud question",
+    "time_limit": 30,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 0,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": -1,
+    "correct_json": "",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": true,
+    "points_earned": 0,
+    "question_type": "wordcloud",
+    "rank": 3,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": -1,
+    "your_text": ""
+   },
+   {
+    "answer_starts_in": 0.0,
+    "full_time_limit": 20,
+    "id": 6,
+    "image_url": "",
+    "number": 7,
+    "options": [
+     "a",
+     "b"
+    ],
+    "points": 0,
+    "question_type": "mc",
+    "read_time": 0,
+    "scoring_mode": "speed",
+    "streak_bonus": true,
+    "text": "mc question",
+    "time_limit": 20,
+    "total": 7,
+    "type": "question"
+   },
+   {
+    "breakdown": {
+     "base": 0,
+     "kind": "none",
+     "question_points": 0,
+     "streak": 0,
+     "streak_bonus": 0,
+     "total": 0
+    },
+    "correct_index": 0,
+    "correct_json": "0",
+    "is_correct": false,
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "no_points": true,
+    "points_earned": 0,
+    "question_type": "mc",
+    "rank": 3,
+    "scoring_mode": "speed",
+    "streak": 0,
+    "total_players": 3,
+    "total_score": 0,
+    "type": "reveal",
+    "your_answer": -1
+   },
+   {
+    "leaderboard": [
+     {
+      "nickname": "ana",
+      "player_id": "<ana>",
+      "rank": 1,
+      "score": 1150,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "beto",
+      "player_id": "<beto>",
+      "rank": 2,
+      "score": 450,
+      "student_id": null,
+      "team": null
+     },
+     {
+      "nickname": "caro",
+      "player_id": "<caro>",
+      "rank": 3,
+      "score": 0,
+      "student_id": null,
+      "team": null
+     }
+    ],
+    "review": [
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "Mediana",
+      "index": 0,
+      "points": 0,
+      "question_type": "mc",
+      "scored": true,
+      "text": "mc question",
+      "your_answer": "—"
+     },
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "Falso",
+      "index": 1,
+      "points": 0,
+      "question_type": "tf",
+      "scored": true,
+      "text": "tf question",
+      "your_answer": "—"
+     },
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "Histograma, Caja, Densidad",
+      "index": 2,
+      "points": 0,
+      "question_type": "ms",
+      "scored": true,
+      "text": "ms question",
+      "your_answer": "—"
+     },
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "",
+      "index": 3,
+      "points": 0,
+      "question_type": "poll",
+      "scored": false,
+      "text": "poll question",
+      "your_answer": "—"
+     },
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "uno → dos → tres → cuatro",
+      "index": 4,
+      "points": 0,
+      "question_type": "order",
+      "scored": true,
+      "text": "order question",
+      "your_answer": "—"
+     },
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "",
+      "index": 5,
+      "points": 0,
+      "question_type": "wordcloud",
+      "scored": false,
+      "text": "wordcloud question",
+      "your_answer": "—"
+     },
+     {
+      "answered": false,
+      "correct": false,
+      "correct_answer": "a",
+      "index": 6,
+      "points": 0,
+      "question_type": "mc",
+      "scored": true,
+      "text": "mc question",
+      "your_answer": "—"
+     }
+    ],
+    "type": "game_end"
+   }
+  ]
+ },
+ "session_detail": [
+  {
+   "avg_time_seconds": 4.25,
+   "correct_count": 1,
+   "distribution": [
+    {
+     "count": 0,
+     "label": "A",
+     "pct": 0.0
+    },
+    {
+     "count": 1,
+     "label": "B",
+     "pct": 50.0
+    },
+    {
+     "count": 1,
+     "label": "C",
+     "pct": 50.0
+    },
+    {
+     "count": 0,
+     "label": "D",
+     "pct": 0.0
+    }
+   ],
+   "question_index": 0,
+   "question_text": "mc question",
+   "question_type": "mc",
+   "total_answers": 2
+  },
+  {
+   "avg_time_seconds": 4.25,
+   "correct_count": 1,
+   "distribution": [
+    {
+     "count": 1,
+     "label": "A",
+     "pct": 50.0
+    },
+    {
+     "count": 1,
+     "label": "B",
+     "pct": 50.0
+    }
+   ],
+   "question_index": 1,
+   "question_text": "tf question",
+   "question_type": "tf",
+   "total_answers": 2
+  },
+  {
+   "avg_time_seconds": 2.5,
+   "correct_count": 1,
+   "distribution": [
+    {
+     "count": 1,
+     "label": "A",
+     "pct": 50.0
+    },
+    {
+     "count": 1,
+     "label": "B",
+     "pct": 50.0
+    },
+    {
+     "count": 0,
+     "label": "C",
+     "pct": 0.0
+    },
+    {
+     "count": 1,
+     "label": "D",
+     "pct": 50.0
+    }
+   ],
+   "question_index": 2,
+   "question_text": "ms question",
+   "question_type": "ms",
+   "total_answers": 2
+  },
+  {
+   "avg_time_seconds": 4.25,
+   "correct_count": 2,
+   "distribution": [
+    {
+     "count": 0,
+     "label": "A",
+     "pct": 0.0
+    },
+    {
+     "count": 2,
+     "label": "B",
+     "pct": 100.0
+    },
+    {
+     "count": 0,
+     "label": "C",
+     "pct": 0.0
+    }
+   ],
+   "question_index": 3,
+   "question_text": "poll question",
+   "question_type": "poll",
+   "total_answers": 2
+  },
+  {
+   "avg_time_seconds": 4.25,
+   "correct_count": 1,
+   "distribution": [],
+   "question_index": 4,
+   "question_text": "order question",
+   "question_type": "order",
+   "total_answers": 2
+  },
+  {
+   "avg_time_seconds": 4.25,
+   "correct_count": 2,
+   "distribution": [
+    {
+     "count": 2,
+     "word": "duplicados"
+    }
+   ],
+   "question_index": 5,
+   "question_text": "wordcloud question",
+   "question_type": "wordcloud",
+   "total_answers": 2
+  },
+  {
+   "avg_time_seconds": 2.5,
+   "correct_count": 1,
+   "distribution": [
+    {
+     "count": 1,
+     "label": "A",
+     "pct": 100.0
+    },
+    {
+     "count": 0,
+     "label": "B",
+     "pct": 0.0
+    }
+   ],
+   "question_index": 6,
+   "question_text": "mc question",
+   "question_type": "mc",
+   "total_answers": 1
+  }
+ ]
+}

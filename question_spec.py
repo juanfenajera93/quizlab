@@ -15,11 +15,13 @@ apart:
   * build_ai_prompt()    — the downloadable AI prompt (/admin/ai-prompt)
   * parse_csv()          — the importer + validation (/admin/import-csv)
 
-Adding a question type: add a QuestionType entry to QUESTION_TYPES (with an
-example row). The template, the AI prompt and the importer pick it up
-automatically. The game engine (game_manager._score_answer), the player/host
-JS and the quiz editor UI still need their own support for the new type;
-tests/test_csv_roundtrip.py fails if the example is not scored as correct.
+Adding a question type:
+  1. a QuestionType entry here (with an example row and example_answer):
+     the template, the AI prompt and the importer pick it up;
+  2. a class in qtypes.py (scoring, reveal, review, homework, history);
+  3. an entry in static/js/qtypes.js (phone, projector, homework, editor).
+tests/test_registry.py fails if the three disagree or if the example is
+not scored as correct.
 """
 
 from __future__ import annotations

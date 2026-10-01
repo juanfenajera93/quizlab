@@ -37,6 +37,7 @@ from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
 import question_spec
+import qtypes
 from database import (
     StartupDatabaseError,
     create_db_and_tables,
@@ -113,6 +114,8 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 templates = Jinja2Templates(directory="templates")
 # {{ some_utc_datetime | local }} or | local('%d/%m'): shown in APP_TIMEZONE
 templates.env.filters["local"] = format_local
+# Question-type metadata for static/js/qtypes.js (one registry, qtypes.py)
+templates.env.globals["ql_kind_meta"] = qtypes.kind_meta()
 
 
 @app.on_event("startup")
@@ -403,6 +406,10 @@ async def save_quiz(request: Request, db: Session = Depends(get_session)):
         if qtype and qtype.fixed_points is not None:
             pts = qtype.fixed_points
         points_list.append(pts)
+        problems = qtypes.get_kind(qd.get("question_type", "mc")).validate_question(qd)
+        if problems:
+            return JSONResponse({"error": f"Question {i + 1}: {problems[0]}"},
+                                status_code=400)
 
     if quiz_id:
         quiz = db.get(Quiz, int(quiz_id))
@@ -517,14 +524,8 @@ async def session_detail(
         except Exception:
             answers_raw = []
         total_ans = stat.total_answers
-        distribution = []
-        if stat.question_type in ("mc", "tf", "ms", "poll") and isinstance(answers_raw, list):
-            for i, cnt in enumerate(answers_raw):
-                pct = round(cnt / total_ans * 100, 1) if total_ans > 0 else 0.0
-                distribution.append({"label": chr(65 + i), "count": cnt, "pct": pct})
-        elif stat.question_type == "wordcloud" and isinstance(answers_raw, dict):
-            sorted_words = sorted(answers_raw.items(), key=lambda x: x[1], reverse=True)[:5]
-            distribution = [{"word": w, "count": c} for w, c in sorted_words]
+        distribution = qtypes.get_kind(stat.question_type).stats_view(
+            answers_raw, total_ans)
         stats_data.append({
             "question_index": stat.question_index,
             "question_text": stat.question_text[:60] + ("…" if len(stat.question_text) > 60 else ""),
@@ -997,53 +998,21 @@ async def api_assignment_submit(code: str, request: Request,
     for i, q in enumerate(questions):
         ans = answers[i] if i < len(answers) else None
         options = json.loads(q.options_json) if q.options_json else []
-        if q.question_type == "order":
-            # Client submits original-array indices in chosen order;
-            # the correct ordering is simply 0..n-1
-            correct_json = json.dumps(list(range(len(options))))
-        else:
-            correct_json = q.correct_json
+        qd = {"question_type": q.question_type, "options": options,
+              "correct_json": q.correct_json}
+        kind = qtypes.get_kind(q.question_type)
         pts, is_correct = _score_answer(
-            q.question_type, correct_json,
+            q.question_type, kind.homework_key(qd),
             ans if ans is not None else -1,
             0.0, q.time_limit, q.points, "accuracy")
         score += pts
-        scored = q.question_type not in ("poll", "wordcloud")
+        scored = kind.scored
         if is_correct and scored:
             correct_count += 1
 
-        your_display = "—"
-        correct_display = ""
-        if q.question_type in ("mc", "tf", "poll"):
-            if isinstance(ans, int) and 0 <= ans < len(options):
-                your_display = str(options[ans])
-            if q.question_type != "poll":
-                try:
-                    ci = int(q.correct_json) if q.correct_json != "" else 0
-                except (ValueError, TypeError):
-                    ci = 0
-                if 0 <= ci < len(options):
-                    correct_display = str(options[ci])
-        elif q.question_type == "ms":
-            if isinstance(ans, list):
-                your_display = ", ".join(
-                    str(options[j]) for j in ans
-                    if isinstance(j, int) and 0 <= j < len(options)) or "—"
-            try:
-                correct_display = ", ".join(
-                    str(options[j]) for j in json.loads(q.correct_json)
-                    if isinstance(j, int) and 0 <= j < len(options))
-            except Exception:
-                correct_display = ""
-        elif q.question_type == "order":
-            if isinstance(ans, list):
-                your_display = " → ".join(
-                    str(options[j]) for j in ans
-                    if isinstance(j, int) and 0 <= j < len(options)) or "—"
-            correct_display = " → ".join(str(o) for o in options)
-        elif q.question_type == "wordcloud":
-            if isinstance(ans, str) and ans.strip():
-                your_display = ans.strip()[:50]
+        # Homework shows the options in their original order
+        your_display = kind.your_answer_text(qd, ans, options)
+        correct_display = kind.correct_answer_text(qd)
 
         review.append({
             "index": i,

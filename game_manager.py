@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import math
 import random
 import string
 import time
@@ -13,6 +12,8 @@ from sqlmodel import Session, select
 
 from database import engine
 from models import LiveSession, LivePlayer, Quiz, Question
+from qtypes import KINDS, get_kind, kind_of
+from scoring import SPEED_FLOOR, Outcome, speed_points, streak_bonus  # noqa: F401 (re-exported)
 from timeutil import as_utc, utc_now
 
 logger = logging.getLogger("quizlab.game")
@@ -114,7 +115,8 @@ class GameSession:
         self.answer_counts: List[int] = []
         self.last_activity = utc_now()
         self.created_at = utc_now()
-        # For "order" type: store the correct ordering to expect from players
+        # Per-question state a type chose at question start (qtypes
+        # prepare(): the ordering shuffle). Name kept for persisted rooms.
         self.order_correct: Dict[int, list] = {}
         # Analytics
         self.analytics_data: dict = {}
@@ -271,114 +273,20 @@ class GameSession:
 
 
 # ─── Scoring ─────────────────────────────────────────────────────────────────
-# static/js/scoring.js mirrors speed_points() and streak_bonus() for the live
-# points counter; keep the two in step. The server's numbers are always the
-# ones that count.
+# The formulas live in scoring.py, the per-type rules in qtypes.py. These
+# wrappers keep the call sites (and the tests) working by type code.
 
-SPEED_FLOOR = 0.5            # speed mode never drops below 50% of base points
-STREAK_TYPES = ("mc", "tf", "ms", "order")   # question types that move streaks
-
-
-def speed_points(base_points, time_limit, time_taken, scoring_mode="speed"):
-    """Points for a fully correct answer given `time_taken` seconds into the
-    answer phase (the read phase never counts)."""
-    if scoring_mode == "accuracy":
-        # Accuracy mode: full points for a correct answer, no time pressure
-        return base_points
-    min_pts = math.floor(base_points * SPEED_FLOOR)
-    time_remaining = max(0.0, time_limit - time_taken)
-    pts = math.floor(base_points * (time_remaining / time_limit)) if time_limit > 0 else 0
-    return max(min_pts, pts)
-
-
-def streak_bonus(base_points, streak_after):
-    """Bonus for a correct answer that brings the streak to `streak_after`:
-    +10% of base points per consecutive correct, capped at +50%."""
-    if streak_after < 2:
-        return 0
-    return math.floor(base_points * 0.1 * min(streak_after - 1, 5))
+# Question types that move streaks (= the ones with a right answer)
+STREAK_TYPES = tuple(code for code, k in KINDS.items() if k.scored)
 
 
 def _score_details(q_type, correct_json, player_answer, time_taken, time_limit,
                    base_points, scoring_mode="speed") -> dict:
-    """Score one answer and say how the points were reached.
-
-    kind: "speed"   fully correct in speed mode (speed_factor applied)
-          "full"    fully correct with no time factor (accuracy mode, poll,
-                    wordcloud)
-          "partial" ms/order partial credit, no time factor (hits of parts)
-          "wrong"   0 points
-    """
-    def full():
-        pts = speed_points(base_points, time_limit, time_taken, scoring_mode)
-        if scoring_mode == "accuracy":
-            return {"points": pts, "correct": True, "kind": "full"}
-        remaining = max(0.0, time_limit - time_taken)
-        factor = remaining / time_limit if time_limit > 0 else 0.0
-        return {"points": pts, "correct": True, "kind": "speed",
-                "speed_factor": round(max(SPEED_FLOOR, factor), 3),
-                "time_taken": round(time_taken, 2)}
-
-    def partial(hits, parts):
-        return {"points": math.floor(base_points * (hits / parts)),
-                "correct": False, "kind": "partial",
-                "hits": hits, "parts": parts}
-
-    wrong = {"points": 0, "correct": False, "kind": "wrong"}
-
-    if q_type in ("mc", "tf"):
-        try:
-            correct_idx = int(correct_json) if correct_json != "" else 0
-        except (ValueError, TypeError):
-            correct_idx = 0
-        if player_answer == correct_idx:
-            return full()
-        return wrong
-
-    elif q_type == "ms":
-        try:
-            correct_indices = set(json.loads(correct_json))
-        except Exception:
-            return wrong
-        if not isinstance(player_answer, list):
-            return wrong
-        selected = set(player_answer)
-        # Any wrong selection → zero
-        all_indices = set(range(100))
-        if selected & (all_indices - correct_indices):
-            return wrong
-        overlap = len(selected & correct_indices)
-        if overlap == len(correct_indices):
-            return full()
-        elif overlap > 0:
-            return partial(overlap, len(correct_indices))
-        return wrong
-
-    elif q_type == "poll":
-        if player_answer is not None and player_answer != -1:
-            return {"points": base_points, "correct": True, "kind": "full"}
-        return wrong
-
-    elif q_type == "order":
-        try:
-            correct_order = json.loads(correct_json) if correct_json else []
-        except Exception:
-            return wrong
-        if not isinstance(player_answer, list) or not correct_order:
-            return wrong
-        if len(player_answer) != len(correct_order):
-            return wrong
-        matching = sum(1 for a, b in zip(player_answer, correct_order) if a == b)
-        if matching == len(correct_order):
-            return full()
-        return partial(matching, len(correct_order))
-
-    elif q_type == "wordcloud":
-        if player_answer and isinstance(player_answer, str) and player_answer.strip():
-            return {"points": base_points, "correct": True, "kind": "full"}
-        return wrong
-
-    return wrong
+    """Score one answer and say how the points were reached (see
+    scoring.Outcome for the kinds)."""
+    return get_kind(q_type).score(
+        correct_json, player_answer,
+        Outcome(time_taken, time_limit, base_points, scoring_mode))
 
 
 def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
@@ -853,24 +761,13 @@ class GameManager:
         qi = session.current_question_index
         q_type = q.get("question_type", "mc")
 
-        # For "order" type: shuffle the options, store correct ordering
-        if q_type == "order" and len(options) > 1:
-            shuffled_indices = list(range(len(options)))
-            random.shuffle(shuffled_indices)
-            # correct_ordering: the sequence of shuffled-array indices that gives original order
-            # i.e., where should shuffled[i] go? → argsort of shuffled_indices
-            argsort = [0] * len(shuffled_indices)
-            for orig_pos, shuf_pos in enumerate(shuffled_indices):
-                argsort[shuf_pos] = orig_pos
-            # Player submits: send_options in their chosen order as indices into send_options
-            # Correct submission = the permutation that restores original order
-            # Since send_options[i] = options[shuffled_indices[i]],
-            # the correct order of send_options is argsort of shuffled_indices
-            session.order_correct[qi] = argsort
-        elif q_type == "order":
-            session.order_correct[qi] = list(range(len(options)))
+        # Per-question state chosen now (the ordering shuffle), kept in
+        # order_correct so rejoins and reveal see the same arrangement
+        state = get_kind(q_type).prepare(q)
+        if state is not None:
+            session.order_correct[qi] = state
 
-        # _question_payload reconstructs the shuffled order from order_correct,
+        # _question_payload rebuilds what the phones see from that state,
         # so the live message and the rejoin message share one shape
         msg = self._question_payload(session)
         session.touch()
@@ -901,11 +798,7 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
-        q = session.current_question
-        q_type = q.get("question_type", "mc") if q else "mc"
-
-        # For ms and order: use separate handlers
-        if q_type in ("ms", "order"):
+        if not self._accepts(session, "answer"):
             return
         if await self._reject_if_closed(session, player, question_id):
             return
@@ -942,6 +835,8 @@ class GameManager:
         if not player or question_id in player.confirmed:
             return
         if session.current_question_index != question_id:
+            return
+        if not self._accepts(session, "selection"):
             return
         if session.answer_window():
             return  # live selection outside the window: just ignore it
@@ -982,6 +877,8 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
+        if not self._accepts(session, "confirm"):
+            return
         if await self._reject_if_closed(session, player, question_id):
             return
 
@@ -1019,6 +916,8 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
+        if not self._accepts(session, "order_update"):
+            return
         if await self._reject_if_closed(session, player, question_id):
             return
 
@@ -1046,6 +945,11 @@ class GameManager:
             "counts": session.answer_counts,
             **self._answer_progress(session),
         })
+
+    @staticmethod
+    def _accepts(session: GameSession, message_type: str) -> bool:
+        """Does the current question's type answer with this message?"""
+        return message_type in kind_of(session.current_question or {}).messages
 
     # ─── Server-side question clock ─────────────────────────────────────────
 
@@ -1128,20 +1032,14 @@ class GameManager:
 
         session.state = "reveal"
         q_type = q.get("question_type", "mc")
-        correct_json = q.get("correct_json", "")
+        kind = get_kind(q_type)
         time_limit = q.get("time_limit", 20)
         base_points = q.get("points", 100)
-
-        # For order type: use the shuffled-correct ordering stored in session
-        if q_type == "order":
-            correct_ordering = session.order_correct.get(qi, [])
-            scoring_correct_json = json.dumps(correct_ordering)
-        else:
-            scoring_correct_json = correct_json
+        scoring_correct_json = kind.scoring_key(q, session.order_correct.get(qi))
 
         # Score all players, recording the outcome so rejoins and the
         # end-of-game review reuse it instead of re-deriving points
-        streak_counts = q_type in STREAK_TYPES
+        streak_counts = kind.scored
         for player in session.players.values():
             answer = player.answers.get(qi)
             if answer is None:
@@ -1207,68 +1105,24 @@ class GameManager:
         for qi, q in enumerate(session.questions):
             if qi not in session.revealed_questions:
                 continue  # skipped questions were never scored
-            q_type = q.get("question_type", "mc")
-            options = q.get("options", [])
-            correct_json = q.get("correct_json", "")
+            kind = kind_of(q)
             result = player.question_results.get(qi, {})
             answered = result.get("answered", False)
-            ans = player.answers.get(qi)
-            if ans is None:
-                ans = player.selections.get(qi)
-
-            your_display = "—"
-            correct_display = ""
-            if q_type in ("mc", "tf", "poll"):
-                if answered and isinstance(ans, int) and 0 <= ans < len(options):
-                    your_display = str(options[ans])
-                if q_type != "poll":
-                    try:
-                        ci = int(correct_json) if correct_json != "" else 0
-                    except (ValueError, TypeError):
-                        ci = 0
-                    if 0 <= ci < len(options):
-                        correct_display = str(options[ci])
-            elif q_type == "ms":
-                if answered and isinstance(ans, list):
-                    your_display = ", ".join(
-                        str(options[i]) for i in ans
-                        if isinstance(i, int) and 0 <= i < len(options)
-                    ) or "—"
-                try:
-                    correct_display = ", ".join(
-                        str(options[i]) for i in json.loads(correct_json)
-                        if isinstance(i, int) and 0 <= i < len(options)
-                    )
-                except Exception:
-                    correct_display = ""
-            elif q_type == "order":
-                # Player ordering indexes into the shuffled list they saw
-                perm = session.order_correct.get(qi)
-                send_options = options[:]
-                if perm and len(perm) == len(options):
-                    send_options = [""] * len(options)
-                    for orig_idx, shuf_pos in enumerate(perm):
-                        send_options[shuf_pos] = options[orig_idx]
-                if answered and isinstance(ans, list):
-                    your_display = " → ".join(
-                        str(send_options[i]) for i in ans
-                        if isinstance(i, int) and 0 <= i < len(send_options)
-                    ) or "—"
-                correct_display = " → ".join(str(o) for o in options)
-            elif q_type == "wordcloud":
-                if answered and isinstance(ans, str):
-                    your_display = ans
+            ans = _final_answer(player, qi)
+            # what the phone saw (the ordering shuffle, else the options)
+            seen = kind.player_options(q, session.order_correct.get(qi))
+            your_display = kind.your_answer_text(q, ans, seen) if answered else "—"
 
             review.append({
                 "index": qi,
                 "text": q.get("text", ""),
-                "question_type": q_type,
+                "question_type": q.get("question_type", "mc"),
                 "your_answer": your_display,
-                "correct_answer": correct_display,
+                "correct_answer": kind.correct_answer_text(q),
                 "answered": answered,
                 "correct": result.get("correct", False),
                 "points": result.get("points", 0),
-                "scored": q_type not in ("poll", "wordcloud"),
+                "scored": kind.scored,
             })
         return review
 
@@ -1375,21 +1229,11 @@ class GameManager:
         q = session.current_question or {}
         qi = session.current_question_index
         q_type = q.get("question_type", "mc")
-        correct_json = q.get("correct_json", "")
+        kind = get_kind(q_type)
         time_limit = q.get("time_limit", 20)
         base_points = q.get("points", 100)
-
-        if q_type == "order":
-            scoring_correct_json = json.dumps(session.order_correct.get(qi, []))
-        else:
-            scoring_correct_json = correct_json
-
-        correct_index = -1
-        if q_type in ("mc", "tf"):
-            try:
-                correct_index = int(correct_json) if correct_json != "" else 0
-            except (ValueError, TypeError):
-                correct_index = 0
+        scoring_correct_json = kind.scoring_key(q, session.order_correct.get(qi))
+        correct_index = kind.correct_index(q)
 
         if leaderboard is None:
             leaderboard = session.get_leaderboard()
@@ -1431,13 +1275,12 @@ class GameManager:
             "rank": rank,
             "total_players": len([p for p in session.players.values() if p.connected]),
             "leaderboard": leaderboard[:5],
-            "no_points": base_points == 0 or q_type == "wordcloud",
+            "no_points": base_points == 0 or kind.never_scores,
             "streak": player.streak,
             "scoring_mode": session.scoring_mode,
             "breakdown": breakdown,
         }
-        if q_type == "wordcloud":
-            reveal_msg["your_text"] = player.answers.get(qi, "")
+        reveal_msg.update(kind.player_reveal_extra(q, player, qi))
         if session.team_count:
             reveal_msg["teams"] = session.get_team_leaderboard()
             reveal_msg["your_team"] = player.team
@@ -1449,19 +1292,9 @@ class GameManager:
         q = session.current_question or {}
         qi = session.current_question_index
         q_type = q.get("question_type", "mc")
-        correct_json = q.get("correct_json", "")
-
-        if q_type == "order":
-            scoring_correct_json = json.dumps(session.order_correct.get(qi, []))
-        else:
-            scoring_correct_json = correct_json
-
-        correct_index = -1
-        if q_type in ("mc", "tf"):
-            try:
-                correct_index = int(correct_json) if correct_json != "" else 0
-            except (ValueError, TypeError):
-                correct_index = 0
+        kind = get_kind(q_type)
+        scoring_correct_json = kind.scoring_key(q, session.order_correct.get(qi))
+        correct_index = kind.correct_index(q)
 
         host_reveal: dict = {
             "type": "reveal",
@@ -1471,25 +1304,9 @@ class GameManager:
             "leaderboard": session.get_leaderboard()[:5],
             "distribution": self._reveal_distribution(session),
         }
-        if q_type == "ms":
-            try:
-                host_reveal["correct_indices"] = sorted(
-                    i for i in json.loads(correct_json) if isinstance(i, int))
-            except (ValueError, TypeError):
-                host_reveal["correct_indices"] = []
-        elif q_type == "order":
-            # The host was sent the shuffled list; the correct sequence is the
-            # options as the teacher wrote them.
-            host_reveal["correct_options"] = list(q.get("options", []))
+        host_reveal.update(kind.host_reveal_extra(q, session, qi))
         if session.team_count:
             host_reveal["teams"] = session.get_team_leaderboard()
-        if q_type == "wordcloud":
-            freq_dict: Dict[str, int] = {}
-            for txt in session.wordcloud_answers.get(qi, {}).values():
-                key = txt.lower().strip()
-                if key:
-                    freq_dict[key] = freq_dict.get(key, 0) + 1
-            host_reveal["words"] = freq_dict
         return host_reveal
 
     def _reveal_distribution(self, session: GameSession) -> dict:
@@ -1503,42 +1320,17 @@ class GameManager:
         its chart. Deterministic, so a host reconnect repaints the same
         numbers.
 
-        counts:   per option, players whose answer includes it (mc/tf/poll/ms)
         answered: players with any answer; percentages use this denominator
         players:  everyone in the room
-        order:    full_correct, plus in_place[i] = players who put original
-                  item i in its correct position
+        + the type's own fields (qtypes: counts per option for choice types;
+          full_correct / in_place for ordering)
         """
         q = session.current_question or {}
         qi = session.current_question_index
-        q_type = q.get("question_type", "mc")
-        n_opts = len(q.get("options", []))
         answers = [a for a in (_final_answer(p, qi) for p in session.players.values())
                    if a is not None and a != -1 and a != ""]
         out: dict = {"answered": len(answers), "players": len(session.players)}
-        if q_type in ("mc", "tf", "poll", "ms"):
-            counts = [0] * n_opts
-            for a in answers:
-                picked = a if isinstance(a, list) else [a]
-                for i in set(x for x in picked if isinstance(x, int)):
-                    if 0 <= i < n_opts:
-                        counts[i] += 1
-            out["counts"] = counts
-        elif q_type == "order":
-            perm = session.order_correct.get(qi) or list(range(n_opts))
-            in_place = [0] * n_opts
-            full = 0
-            for a in answers:
-                if not isinstance(a, list) or len(a) != n_opts:
-                    continue
-                hits = [a[j] == perm[j] for j in range(n_opts)]
-                for j, hit in enumerate(hits):
-                    if hit:
-                        in_place[j] += 1
-                if all(hits):
-                    full += 1
-            out["full_correct"] = full
-            out["in_place"] = in_place
+        out.update(kind_of(q).distribution(q, answers, session.order_correct.get(qi)))
         return out
 
     def _phase_info(self, session: GameSession) -> dict:
@@ -1564,23 +1356,14 @@ class GameManager:
         }
 
     def _question_payload(self, session: GameSession) -> Optional[dict]:
-        """Build the same message shape as _send_question, reconstructing the
-        shuffled option order for "order" questions from order_correct."""
+        """Build the same message shape as _send_question; the options are
+        the ones the type shows the phones (the stored ordering shuffle)."""
         q = session.current_question
         if not q:
             return None
         qi = session.current_question_index
         q_type = q.get("question_type", "mc")
-        options = q.get("options", [])
-
-        send_options = options[:]
-        if q_type == "order":
-            perm = session.order_correct.get(qi)
-            # perm[original_index] = position in the shuffled list sent to players
-            if perm and len(perm) == len(options):
-                send_options = [""] * len(options)
-                for orig_idx, shuf_pos in enumerate(perm):
-                    send_options[shuf_pos] = options[orig_idx]
+        send_options = kind_of(q).player_options(q, session.order_correct.get(qi))
 
         return {
             "type": "question",
@@ -1614,7 +1397,7 @@ class GameManager:
         qi = session.current_question_index
         q_type = q.get("question_type", "mc")
         base_points = q.get("points", 100)
-        if q_type not in STREAK_TYPES or not base_points:
+        if not get_kind(q_type).scored or not base_points:
             return None
         time_taken = player.answer_times.get(qi)
         if time_taken is None:
@@ -1730,11 +1513,9 @@ class GameManager:
                 result["answer_counts"] = session.answer_counts
                 if session.state == "question":
                     result.update(self._phase_info(session))
-                    if payload["question_type"] == "wordcloud":
-                        # live word feed (reactions are transient — no state)
-                        result["words"] = list(
-                            session.wordcloud_answers.get(qi, {}).values()
-                        )
+                    # e.g. the word cloud's live word feed
+                    result.update(kind_of(session.current_question)
+                                  .host_live_state(session, qi))
                 else:
                     result["reveal"] = self._build_host_reveal(session)
 
@@ -1802,14 +1583,10 @@ class GameManager:
         question_stats = []
         for qi, q in enumerate(session.questions):
             q_type = q.get("question_type", "mc")
+            kind = get_kind(q_type)
             base_points = q.get("points", 100)
-            correct_json = q.get("correct_json", "")
             time_limit = q.get("time_limit", 20)
-
-            if q_type == "order":
-                scoring_correct_json = json.dumps(session.order_correct.get(qi, []))
-            else:
-                scoring_correct_json = correct_json
+            scoring_correct_json = kind.scoring_key(q, session.order_correct.get(qi))
 
             answered_players = [
                 p for p in session.players.values()
@@ -1834,36 +1611,8 @@ class GameManager:
 
             avg_time = round(time_sum / time_count, 2) if time_count > 0 else 0.0
 
-            if q_type in ("mc", "tf", "poll"):
-                opts = q.get("options", [])
-                counts = [0] * max(len(opts), 1)
-                for p in session.players.values():
-                    ans = p.answers.get(qi)
-                    if isinstance(ans, int) and 0 <= ans < len(counts):
-                        counts[ans] += 1
-                answers_json = json.dumps(counts)
-            elif q_type == "ms":
-                opts = q.get("options", [])
-                counts = [0] * max(len(opts), 1)
-                for p in session.players.values():
-                    ans = p.answers.get(qi)
-                    if isinstance(ans, list):
-                        for idx in ans:
-                            if isinstance(idx, int) and 0 <= idx < len(counts):
-                                counts[idx] += 1
-                answers_json = json.dumps(counts)
-            elif q_type == "order":
-                submitted = sum(1 for p in session.players.values() if qi in p.answers)
-                answers_json = json.dumps([submitted])
-            elif q_type == "wordcloud":
-                freq: Dict[str, int] = {}
-                for word in session.wordcloud_answers.get(qi, {}).values():
-                    key = word.lower().strip()
-                    if key:
-                        freq[key] = freq.get(key, 0) + 1
-                answers_json = json.dumps(freq)
-            else:
-                answers_json = "[]"
+            answers_json = kind.analytics_answers(
+                q, qi, list(session.players.values()), session)
 
             question_stats.append({
                 "question_index": qi,
@@ -1899,6 +1648,8 @@ class GameManager:
         if not player or question_id in player.confirmed:
             return
 
+        if not self._accepts(session, "wordcloud_answer"):
+            return
         text = text.strip()[:50]
         if not text:
             return

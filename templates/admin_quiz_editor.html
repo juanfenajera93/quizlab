@@ -113,30 +113,12 @@
   <!-- Area 3D: 5-type selector -->
   <div class="field">
     <label>Type</label>
-    <div class="radio-group" id="type-group">
-      <label class="radio-btn">
-        <input type="radio" name="q-type" value="mc" checked onchange="onTypeChange()"> MC
-      </label>
-      <label class="radio-btn">
-        <input type="radio" name="q-type" value="tf" onchange="onTypeChange()"> T/F
-      </label>
-      <label class="radio-btn">
-        <input type="radio" name="q-type" value="ms" onchange="onTypeChange()"> Multi
-      </label>
-      <label class="radio-btn">
-        <input type="radio" name="q-type" value="poll" onchange="onTypeChange()"> Encuesta
-      </label>
-      <label class="radio-btn">
-        <input type="radio" name="q-type" value="order" onchange="onTypeChange()"> Orden
-      </label>
-      <label class="radio-btn">
-        <input type="radio" name="q-type" value="wordcloud" onchange="onTypeChange()"> WCloud
-      </label>
-    </div>
+    <!-- One radio per registered question type (qtypes.js), filled on load -->
+    <div class="radio-group" id="type-group"></div>
   </div>
 
   <!-- Wordcloud note (hidden for non-wordcloud types) -->
-  <div id="wordcloud-note" class="field" style="display:none">
+  <div id="wordcloud-note" class="field type-note" style="display:none">
     <p style="margin:0;font-size:13px;color:var(--text-muted);font-style:italic;text-transform:none;letter-spacing:normal">
       Los estudiantes escribirán texto libre. No hay opciones ni respuesta correcta.
     </p>
@@ -232,8 +214,34 @@ var MIN_OPTIONS = 2;
 // Current options array (strings) in the editor
 var currentOptions = ['', '', '', ''];
 
+// ── Question types (qtypes.js + metadata from qtypes.py) ──────────
+function currentType() {
+  return (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+}
+function editorOf(type) { return QLTypes.get(type).editor; }
+function metaOf(type) { return QLTypes.meta(type); }
+
+function renderTypePicker() {
+  var group = document.getElementById('type-group');
+  group.innerHTML = '';
+  Object.keys(QLTypes.all).forEach(function(code, i) {
+    var label = document.createElement('label');
+    label.className = 'radio-btn';
+    var input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'q-type';
+    input.value = code;
+    input.checked = i === 0;
+    input.addEventListener('change', function() { onTypeChange(); });
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(' ' + (editorOf(code).pick || editorOf(code).short)));
+    group.appendChild(label);
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
+  renderTypePicker();
   renderQuestions();
   initOptions(['', '', '', '']);
   onTypeChange();
@@ -384,8 +392,7 @@ function renderQuestions() {
     var pts = (q.points === undefined || q.points === null) ? 100 : q.points;
     var tl = q.time_limit || 20;
     var qType = q.question_type || 'mc';
-    var typeLabels = { mc: 'MC', tf: 'T/F', ms: 'Multi', poll: 'Poll', order: 'Orden', wordcloud: 'WCloud' };
-    var typeLabel = typeLabels[qType] || qType.toUpperCase();
+    var typeLabel = QLTypes.all[qType] ? editorOf(qType).short : qType.toUpperCase();
 
     item.innerHTML =
       '<span class="drag-handle" title="Drag to reorder">⠿</span>' +
@@ -417,8 +424,8 @@ function initOptions(opts) {
 function renderOptions() {
   var container = document.getElementById('options-list');
   container.innerHTML = '';
-  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
-  var isTF = qType === 'tf';
+  // 'fixed': the type's own options (true/false), not editable
+  var isFixed = editorOf(currentType()).options === 'fixed';
 
   currentOptions.forEach(function(opt, i) {
     var row = document.createElement('div');
@@ -438,7 +445,7 @@ function renderOptions() {
     input.style.margin = '0';
     input.value = opt;
     input.placeholder = 'Option ' + (OPTION_LETTERS[i] || String(i + 1));
-    if (isTF) {
+    if (isFixed) {
       input.readOnly = true;
     }
     input.addEventListener('keydown', function(e) {
@@ -461,7 +468,7 @@ function renderOptions() {
     })(i));
 
     var removeBtn = null;
-    if (!isTF && currentOptions.length > MIN_OPTIONS) {
+    if (!isFixed && currentOptions.length > MIN_OPTIONS) {
       removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.textContent = '×';
@@ -480,7 +487,7 @@ function renderOptions() {
   // Add option button visibility
   var addBtn = document.getElementById('add-option-btn');
   if (addBtn) {
-    addBtn.style.display = (isTF || currentOptions.length >= MAX_OPTIONS) ? 'none' : '';
+    addBtn.style.display = (isFixed || currentOptions.length >= MAX_OPTIONS) ? 'none' : '';
   }
 
   // Fit each field to its text — needs to run after the rows are in the DOM
@@ -515,18 +522,19 @@ function removeOption(idx) {
 
 // ── Area 3D: Correct answer selector ──────────────────────────────
 function updateCorrectSelect() {
-  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+  var qType = currentType();
+  var correctUI = editorOf(qType).correct;
   var container = document.getElementById('correct-select');
   var section = document.getElementById('correct-section');
   var orderNote = document.getElementById('order-correct-note');
 
-  if (qType === 'poll') {
+  if (correctUI === 'none') {
     section.style.display = 'none';
     return;
   }
   section.style.display = '';
 
-  if (qType === 'order') {
+  if (correctUI === 'sequence') {
     container.innerHTML = '';
     if (orderNote) orderNote.style.display = '';
     return;
@@ -535,7 +543,7 @@ function updateCorrectSelect() {
 
   container.innerHTML = '';
 
-  if (qType === 'ms') {
+  if (correctUI === 'multi') {
     // Checkboxes
     currentOptions.forEach(function(opt, i) {
       var label = document.createElement('label');
@@ -556,15 +564,16 @@ function updateCorrectSelect() {
       container.appendChild(label);
     });
   } else {
-    // MC or TF: radio-style correct buttons
+    // One right option: radio-style correct buttons
+    var labels = editorOf(qType).correctLabels;
     currentOptions.forEach(function(opt, i) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'correct-btn';
       btn.dataset.opt = i;
       btn.style.color = OPTION_COLORS[i] || 'var(--text-muted)';
-      btn.textContent = qType === 'tf'
-        ? (i === 0 ? 'V' : 'F')
+      btn.textContent = labels
+        ? labels[i]
         : (OPTION_LETTERS[i] || String(i + 1));
       btn.addEventListener('click', (function(idx) {
         return function() { selectCorrect(idx); };
@@ -581,16 +590,16 @@ function selectCorrect(idx) {
 }
 
 function getCorrectJson() {
-  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+  var correctUI = editorOf(currentType()).correct;
 
-  if (qType === 'poll') return '';
+  if (correctUI === 'none') return '';
 
-  if (qType === 'order') {
+  if (correctUI === 'sequence') {
     // The order in currentOptions IS the correct order
     return JSON.stringify(currentOptions.map(function(_, i) { return i; }));
   }
 
-  if (qType === 'ms') {
+  if (correctUI === 'multi') {
     var indices = [];
     document.querySelectorAll('#correct-select input[type="checkbox"]').forEach(function(cb, i) {
       if (cb.checked) indices.push(i);
@@ -598,7 +607,7 @@ function getCorrectJson() {
     return JSON.stringify(indices);
   }
 
-  // mc or tf
+  // one right option
   var selected = document.querySelector('.correct-btn.selected');
   if (selected) return String(parseInt(selected.dataset.opt));
   return '0';
@@ -614,12 +623,11 @@ function openForm(q, idx) {
 
   // Options
   var opts;
+  var defaults = metaOf(qType).default_options || [];
   if (q && q.options && q.options.length > 0) {
     opts = q.options.slice();
-  } else if (!q || qType === 'mc') {
-    opts = ['', '', '', ''];
-  } else if (qType === 'tf') {
-    opts = ['Verdadero', 'Falso'];
+  } else if (q && defaults.length) {
+    opts = defaults.slice();          // e.g. Verdadero / Falso
   } else {
     opts = ['', '', '', ''];
   }
@@ -629,7 +637,8 @@ function openForm(q, idx) {
   // Set correct
   if (q) {
     var correctJson = q.correct_json || '';
-    if (qType === 'ms') {
+    var correctUI = editorOf(qType).correct;
+    if (correctUI === 'multi') {
       // Check checkboxes
       setTimeout(function() {
         try {
@@ -644,11 +653,11 @@ function openForm(q, idx) {
           });
         } catch(e) {}
       }, 0);
-    } else if (qType === 'mc' || qType === 'tf') {
+    } else if (correctUI === 'single') {
       var correctIdx = parseInt(correctJson) || 0;
       setTimeout(function() { selectCorrect(correctIdx); }, 0);
     }
-    // poll and order: no UI to set
+    // no right answer, or the option order itself: no UI to set
   }
 
   // Time limit
@@ -691,31 +700,35 @@ function onNoPointsChange() {
 }
 
 function onTypeChange(type) {
-  if (!type) type = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
-  var isTF = type === 'tf';
-  var isWordcloud = type === 'wordcloud';
+  if (!type) type = currentType();
+  var ed = editorOf(type);
+  var isFixed = ed.options === 'fixed';
+  var noOptions = ed.options === 'none';
 
   var optionsSection = document.getElementById('options-section');
   var correctSection = document.getElementById('correct-section');
-  var wcNote = document.getElementById('wordcloud-note');
   var noPointsEl = document.getElementById('no-points-check');
+  // Explanatory notes a type shows instead of options (e.g. word cloud)
+  document.querySelectorAll('.type-note').forEach(function(n) {
+    n.style.display = (n.id === ed.note) ? '' : 'none';
+  });
 
-  if (isWordcloud) {
+  if (noOptions) {
     if (optionsSection) optionsSection.style.display = 'none';
     if (correctSection) correctSection.style.display = 'none';
-    if (wcNote) wcNote.style.display = '';
-    if (noPointsEl) { noPointsEl.checked = true; noPointsEl.disabled = true; }
-    setPointsDisabled(true);
+    if (metaOf(type).fixed_points === 0) {
+      if (noPointsEl) { noPointsEl.checked = true; noPointsEl.disabled = true; }
+      setPointsDisabled(true);
+    }
     return;
   }
 
-  // Restore no-points control for non-wordcloud types
+  // Restore the no-points control for types that can be scored
   if (noPointsEl) noPointsEl.disabled = false;
-  if (wcNote) wcNote.style.display = 'none';
   if (optionsSection) optionsSection.style.display = '';
 
-  if (isTF) {
-    currentOptions = ['Verdadero', 'Falso'];
+  if (isFixed) {
+    currentOptions = (metaOf(type).default_options || []).slice();
   } else if (currentOptions.length === 2 && (currentOptions[0] === 'Verdadero' || currentOptions[0] === 'True')) {
     // Was TF, switching to something else — reset to 4 blank
     currentOptions = ['', '', '', ''];
@@ -724,14 +737,14 @@ function onTypeChange(type) {
   renderOptions();
 
   // Show/hide correct section
-  if (type === 'poll') {
+  if (ed.correct === 'none') {
     correctSection.style.display = 'none';
   } else {
     correctSection.style.display = '';
   }
 
-  // Default select first for mc/tf
-  if (type === 'mc' || type === 'tf') {
+  // Default: the first option is the right one
+  if (ed.correct === 'single') {
     setTimeout(function() { selectCorrect(0); }, 0);
   }
 }
@@ -740,7 +753,8 @@ function saveQuestion() {
   var text = document.getElementById('q-text-input').value.trim();
   if (!text) { showToast('Question text is required', 'error'); return; }
 
-  var qType = (document.querySelector('input[name="q-type"]:checked') || {}).value || 'mc';
+  var qType = currentType();
+  var ed = editorOf(qType);
   var tl = getTimeLimit();
   var noPointsChk = document.getElementById('no-points-check');
   var pts = (noPointsChk && noPointsChk.checked) ? 0 : getPoints();
@@ -748,26 +762,26 @@ function saveQuestion() {
 
   // Validate options
   var opts = currentOptions.slice();
-  if (qType !== 'poll' && qType !== 'order' && qType !== 'wordcloud') {
+  if (ed.requireTwoOptions) {
     var filled = opts.filter(function(o) { return o.trim() !== ''; });
     if (filled.length < 2) { showToast('Options A and B are required', 'error'); return; }
   }
 
-  var correctJson = (qType === 'wordcloud') ? '' : getCorrectJson();
+  var correctJson = (ed.options === 'none') ? '' : getCorrectJson();
   var imgUrl = document.getElementById('img-url-input').value.trim() || null;
 
   var q = {
     text: text,
     question_type: qType,
-    options: (qType === 'wordcloud') ? [] : opts.filter(function(o) { return o.trim() !== ''; }),
+    options: (ed.options === 'none') ? [] : opts.filter(function(o) { return o.trim() !== ''; }),
     correct_json: correctJson,
     time_limit: tl,
     points: pts,
     image_url: imgUrl
   };
 
-  // For order type: options must all be filled
-  if (qType === 'order') {
+  // The option order is the answer: options must all be filled
+  if (ed.correct === 'sequence') {
     var allFilled = opts.filter(function(o) { return o.trim() !== ''; });
     if (allFilled.length < 2) { showToast('Add at least 2 items to order', 'error'); return; }
     q.options = allFilled;

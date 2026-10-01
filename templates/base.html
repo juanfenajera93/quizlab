@@ -24,6 +24,9 @@
   {% block content %}{% endblock %}
   <script src="/static/js/theme.js"></script>
   <script src="/static/js/i18n.js"></script>
+  <!-- Question types: metadata from qtypes.py, behavior in qtypes.js -->
+  <script>window.QL_KIND_META = {{ ql_kind_meta | tojson }};</script>
+  <script src="/static/js/qtypes.js"></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

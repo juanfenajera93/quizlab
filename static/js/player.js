@@ -9,12 +9,8 @@
   var playerId = null;
   var roomCode = null;
   var currentQuestionId = null;
-  var currentQuestionType = 'mc';
   var answered = false;
-  var msConfirmed = false;
-  var currentOrdering = [];   // for order type
-  var msSelections = [];      // for ms type
-  var mcSelectedIdx = null;   // for mc/tf/poll pre-confirm selection
+  var controller = null;      // the question type's answer UI (qtypes.js)
   var timerInterval = null;
   var readTimerTimeout = null;
   var playerScore = 0;
@@ -346,12 +342,8 @@
   // ── Two-phase question flow ────────────────────────────────────
   function onQuestion(msg) {
     currentQuestionId = msg.id;
-    currentQuestionType = msg.question_type || 'mc';
     answered = false;
-    msConfirmed = false;
-    msSelections = [];
-    currentOrdering = [];
-    mcSelectedIdx = null;
+    controller = null;
 
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     clearTimer();
@@ -415,313 +407,47 @@
     }, readTime * 1000);
   }
 
-  // ── Area 3E + 5 + 7: Build answer buttons per type ────────────
+  // ── Answer UI: built by the question type (qtypes.js) ─────────
+  // The type gets a small context of shared player actions and returns a
+  // controller: timeout() runs when the ring hits 0 unanswered, lock()
+  // when a rejoin or a rejected answer says the question is closed.
   function buildAnswerButtons(msg) {
     var container = document.getElementById('player-answers');
     container.innerHTML = '';
     container.classList.remove('read-phase');
+    controller = QLTypes.get(msg.question_type).player.build(answerContext(msg, container));
+  }
 
-    var qType = msg.question_type || 'mc';
-    var options = msg.options || [];
-    var letters = ['A', 'B', 'C', 'D', 'E', 'F'];
-
-    if (qType === 'tf') {
-      // Two large full-width buttons — tap selects, confirm submits
-      container.className = 'player-answers count-2';
-      ['Verdadero', 'Falso'].forEach(function (label, i) {
+  function answerContext(msg, container) {
+    var qid = msg.id;
+    return {
+      q: msg,
+      container: container,
+      // Every answer message carries the question it answers
+      send: function (obj) { send(Object.assign({ question_id: qid }, obj)); },
+      isAnswered: function () { return answered; },
+      setAnswered: function () { answered = true; },
+      freezePoints: freezePoints,
+      stopPointsCounter: stopPointsCounter,
+      showOverlay: function () {
+        document.getElementById('answered-overlay').classList.add('show');
+      },
+      // The confirm button sits right after the answers (id ms-confirm-btn)
+      addConfirm: function (label, onClick, visible) {
         var btn = document.createElement('button');
-        btn.className = 'player-ans-btn slide-in';
-        btn.dataset.idx = i;
-        btn.style.animationDelay = (i * 80) + 'ms';
-        btn.innerHTML =
-          '<span class="btn-letter">' + (i === 0 ? 'V' : 'F') + '</span>' +
-          '<span>' + escapeHtml(label) + '</span>';
-        btn.addEventListener('click', (function (idx) {
-          return function () { selectMcOption(idx); };
-        })(i));
-        container.appendChild(btn);
-      });
-      var confirmBtn = document.createElement('button');
-      confirmBtn.id = 'ms-confirm-btn';
-      confirmBtn.className = 'ms-confirm-btn';
-      confirmBtn.textContent = t('confirm');
-      confirmBtn.addEventListener('click', confirmMcAnswer);
-      container.parentNode.insertBefore(confirmBtn, container.nextSibling);
-
-    } else if (qType === 'ms') {
-      // Multi-select: tap toggles, confirm button
-      container.className = 'player-answers count-' + options.length;
-      options.forEach(function (opt, i) {
-        var btn = document.createElement('button');
-        btn.className = 'player-ans-btn slide-in';
-        btn.dataset.idx = i;
-        btn.style.animationDelay = (i * 80) + 'ms';
-        btn.innerHTML =
-          '<span class="btn-letter">' + (letters[i] || String(i + 1)) + '</span>' +
-          '<span>' + escapeHtml(String(opt)) + '</span>';
-        btn.addEventListener('click', (function (idx) {
-          return function () { toggleMsSelection(idx); };
-        })(i));
-        container.appendChild(btn);
-      });
-
-      // Confirm button (hidden until ≥1 selection)
-      var confirmBtn = document.createElement('button');
-      confirmBtn.id = 'ms-confirm-btn';
-      confirmBtn.className = 'ms-confirm-btn';
-      confirmBtn.textContent = t('confirm');
-      confirmBtn.addEventListener('click', confirmMsAnswer);
-      // Insert after the answers container
-      container.parentNode.insertBefore(confirmBtn, container.nextSibling);
-
-    } else if (qType === 'order') {
-      // Order type: vertical list with up/down arrows, explicit confirm
-      currentOrdering = options.map(function (_, i) { return i; });
-      container.className = 'player-answers'; // not grid for order
-      container.style.display = 'block';
-      renderOrderList(container, options);
-      var confirmBtn = document.createElement('button');
-      confirmBtn.id = 'ms-confirm-btn';
-      confirmBtn.className = 'ms-confirm-btn visible';
-      confirmBtn.textContent = t('confirm_order');
-      confirmBtn.addEventListener('click', confirmOrderAnswer);
-      container.parentNode.insertBefore(confirmBtn, container.nextSibling);
-
-    } else if (qType === 'wordcloud') {
-      container.className = 'player-answers';
-      var wrapEl = document.createElement('div');
-      wrapEl.className = 'wc-input-area';
-      var inputEl = document.createElement('input');
-      inputEl.type = 'text';
-      inputEl.id = 'wc-input';
-      inputEl.className = 'wc-input';
-      inputEl.maxLength = 50;
-      inputEl.placeholder = t('write_answer');
-      inputEl.autocomplete = 'off';
-      var charCount = document.createElement('div');
-      charCount.className = 'wc-char-count';
-      charCount.textContent = '0 / 50';
-      inputEl.addEventListener('input', function () {
-        charCount.textContent = inputEl.value.length + ' / 50';
-      });
-      inputEl.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); submitWordcloud(); }
-      });
-      wrapEl.appendChild(inputEl);
-      wrapEl.appendChild(charCount);
-      container.appendChild(wrapEl);
-      var wcBtn = document.createElement('button');
-      wcBtn.id = 'ms-confirm-btn';
-      wcBtn.className = 'ms-confirm-btn';
-      wcBtn.textContent = t('confirm').toUpperCase();
-      wcBtn.addEventListener('click', submitWordcloud);
-      container.parentNode.insertBefore(wcBtn, container.nextSibling);
-      // Focus the input after read phase
-      setTimeout(function () { if (inputEl) inputEl.focus(); }, 50);
-
-    } else {
-      // mc or poll: tap selects, confirm submits
-      container.className = 'player-answers count-' + options.length;
-      options.forEach(function (opt, i) {
-        var btn = document.createElement('button');
-        btn.className = 'player-ans-btn slide-in';
-        btn.dataset.idx = i;
-        btn.style.animationDelay = (i * 80) + 'ms';
-        btn.innerHTML =
-          '<span class="btn-letter">' + (letters[i] || String(i + 1)) + '</span>' +
-          '<span>' + escapeHtml(String(opt)) + '</span>';
-        btn.addEventListener('click', (function (idx) {
-          return function () { selectMcOption(idx); };
-        })(i));
-        container.appendChild(btn);
-      });
-      var confirmBtn = document.createElement('button');
-      confirmBtn.id = 'ms-confirm-btn';
-      confirmBtn.className = 'ms-confirm-btn';
-      confirmBtn.textContent = t('confirm');
-      confirmBtn.addEventListener('click', confirmMcAnswer);
-      container.parentNode.insertBefore(confirmBtn, container.nextSibling);
-    }
-  }
-
-  // ── Order type rendering ──────────────────────────────────────
-  function renderOrderList(container, options) {
-    container.innerHTML = '';
-    var list = document.createElement('div');
-    list.className = 'order-list';
-
-    currentOrdering.forEach(function (optIdx, position) {
-      var item = document.createElement('div');
-      item.className = 'order-item';
-      item.dataset.position = position;
-
-      var arrows = document.createElement('div');
-      arrows.className = 'order-arrows';
-
-      var upBtn = document.createElement('button');
-      upBtn.className = 'order-arrow-btn';
-      upBtn.textContent = '↑';
-      upBtn.disabled = (position === 0);
-      upBtn.addEventListener('click', (function (pos) {
-        return function () { swapOrderItems(pos, pos - 1, container, options); };
-      })(position));
-
-      var downBtn = document.createElement('button');
-      downBtn.className = 'order-arrow-btn';
-      downBtn.textContent = '↓';
-      downBtn.disabled = (position === currentOrdering.length - 1);
-      downBtn.addEventListener('click', (function (pos) {
-        return function () { swapOrderItems(pos, pos + 1, container, options); };
-      })(position));
-
-      arrows.appendChild(upBtn);
-      arrows.appendChild(downBtn);
-
-      var text = document.createElement('span');
-      text.className = 'order-item-text';
-      text.textContent = String(options[optIdx]);
-
-      item.appendChild(arrows);
-      item.appendChild(text);
-      list.appendChild(item);
-    });
-
-    container.appendChild(list);
-
-    // Send current ordering immediately
-    sendOrderUpdate();
-  }
-
-  function swapOrderItems(posA, posB, container, options) {
-    if (answered) return;
-    var tmp = currentOrdering[posA];
-    currentOrdering[posA] = currentOrdering[posB];
-    currentOrdering[posB] = tmp;
-    renderOrderList(container, options);
-    sendOrderUpdate();
-  }
-
-  function sendOrderUpdate() {
-    send({
-      type: 'order_update',
-      question_id: currentQuestionId,
-      ordering: currentOrdering.slice()
-    });
-  }
-
-  // ── ms selection toggle ────────────────────────────────────────
-  function toggleMsSelection(idx) {
-    if (msConfirmed) return;
-    var pos = msSelections.indexOf(idx);
-    if (pos === -1) {
-      msSelections.push(idx);
-    } else {
-      msSelections.splice(pos, 1);
-    }
-
-    // Update button visual
-    var btns = document.querySelectorAll('.player-ans-btn');
-    btns.forEach(function (btn) {
-      var btnIdx = parseInt(btn.dataset.idx);
-      if (msSelections.indexOf(btnIdx) !== -1) {
-        btn.classList.add('selected-ms');
-      } else {
-        btn.classList.remove('selected-ms');
+        btn.id = 'ms-confirm-btn';
+        btn.className = 'ms-confirm-btn' + (visible ? ' visible' : '');
+        btn.textContent = label;
+        btn.addEventListener('click', onClick);
+        container.parentNode.insertBefore(btn, container.nextSibling);
+        return btn;
+      },
+      confirmButton: function () { return document.getElementById('ms-confirm-btn'); },
+      hideConfirm: function () {
+        var btn = document.getElementById('ms-confirm-btn');
+        if (btn) btn.style.display = 'none';
       }
-    });
-
-    // Show/hide confirm button
-    var confirmBtn = document.getElementById('ms-confirm-btn');
-    if (confirmBtn) {
-      if (msSelections.length > 0) {
-        confirmBtn.classList.add('visible');
-      } else {
-        confirmBtn.classList.remove('visible');
-      }
-    }
-
-    // Send live selection to server
-    send({
-      type: 'selection',
-      question_id: currentQuestionId,
-      selections: msSelections.slice()
-    });
-  }
-
-  function confirmMsAnswer() {
-    if (msConfirmed || msSelections.length === 0) return;
-    msConfirmed = true;
-    answered = true;
-    freezePoints();
-
-    send({
-      type: 'confirm',
-      question_id: currentQuestionId
-    });
-
-    // Area 4: Do NOT stop timer — keep it running
-    // Dim buttons, show overlay
-    var btns = document.querySelectorAll('.player-ans-btn');
-    btns.forEach(function (btn) {
-      btn.disabled = true;
-      if (msSelections.indexOf(parseInt(btn.dataset.idx)) === -1) {
-        btn.classList.add('dimmed');
-      }
-    });
-
-    var confirmBtn = document.getElementById('ms-confirm-btn');
-    if (confirmBtn) confirmBtn.style.display = 'none';
-
-    document.getElementById('answered-overlay').classList.add('show');
-  }
-
-  function selectMcOption(idx) {
-    if (answered) return;
-    mcSelectedIdx = idx;
-    document.querySelectorAll('.player-ans-btn').forEach(function (btn) {
-      if (parseInt(btn.dataset.idx) === idx) {
-        btn.classList.add('selected-mc');
-      } else {
-        btn.classList.remove('selected-mc');
-      }
-    });
-    var confirmBtn = document.getElementById('ms-confirm-btn');
-    if (confirmBtn) confirmBtn.classList.add('visible');
-  }
-
-  function confirmMcAnswer() {
-    if (answered || mcSelectedIdx === null) return;
-    document.querySelectorAll('.player-ans-btn').forEach(function (btn) {
-      btn.classList.remove('selected-mc');
-    });
-    var confirmBtn = document.getElementById('ms-confirm-btn');
-    if (confirmBtn) confirmBtn.style.display = 'none';
-    submitAnswer(mcSelectedIdx);
-  }
-
-  function confirmOrderAnswer() {
-    if (answered) return;
-    answered = true;
-    freezePoints();
-    sendOrderUpdate();
-    document.querySelectorAll('.order-arrow-btn').forEach(function (b) { b.disabled = true; });
-    var confirmBtn = document.getElementById('ms-confirm-btn');
-    if (confirmBtn) confirmBtn.style.display = 'none';
-    document.getElementById('answered-overlay').classList.add('show');
-  }
-
-  function submitWordcloud() {
-    if (answered) return;
-    var inputEl = document.getElementById('wc-input');
-    if (!inputEl) return;
-    var text = inputEl.value.trim().slice(0, 50);
-    if (!text) return;
-    answered = true;
-    inputEl.disabled = true;
-    var btn = document.getElementById('ms-confirm-btn');
-    if (btn) btn.style.display = 'none';
-    send({ type: 'wordcloud_answer', question_id: currentQuestionId, text: text });
-    document.getElementById('answered-overlay').classList.add('show');
+    };
   }
 
   function enterAnswerPhase(timeLimit) {
@@ -756,20 +482,16 @@
     var rankEl  = document.getElementById('rank-display');
 
     var flashClass = '';
-    if (qType === 'wordcloud') {
-      var yourText = msg.your_text || '';
-      if (iconEl) { iconEl.textContent = '☁'; iconEl.style.color = 'var(--violet)'; }
-      labelEl.textContent = yourText ? t('sent') : t('no_answer');
-      labelEl.className = 'reveal-label ' + (yourText ? 'poll' : 'wrong');
-      popupEl.textContent = t('no_points');
-      popupEl.className = 'score-popup wrong';
-    } else if (qType === 'poll') {
-      // Poll: everyone who answered gets points
-      if (iconEl) { iconEl.textContent = '✓'; iconEl.style.color = 'var(--lime)'; }
-      labelEl.textContent = t('thanks');
-      labelEl.className = 'reveal-label poll';
-      popupEl.textContent = didAnswer ? '+' + ptsEarned + ' pts' : '0 pts';
-      popupEl.className = didAnswer ? 'score-popup' : 'score-popup wrong';
+    var qtype = QLTypes.get(qType);
+    // Types without a right/wrong answer (poll, word cloud...) say so
+    var own = qtype.player.reveal(msg);
+    if (own) {
+      if (iconEl) { iconEl.textContent = own.icon; iconEl.style.color = own.color; }
+      labelEl.textContent = own.label;
+      labelEl.className = 'reveal-label ' + own.cls;
+      popupEl.textContent = own.popup;
+      popupEl.className = own.popupCls;
+      flashClass = own.flash || '';
     } else if (!didAnswer) {
       if (iconEl) { iconEl.textContent = '⏱'; iconEl.style.color = 'var(--answer-a)'; }
       labelEl.textContent = t('times_up');
@@ -800,7 +522,7 @@
       flashClass = 'flash-wrong';
     }
 
-    if (msg.no_points && qType !== 'wordcloud') {
+    if (msg.no_points && !qtype.meta.never_scores) {
       popupEl.textContent = t('no_points');
       popupEl.className = 'score-popup wrong';
     }
@@ -1021,7 +743,7 @@
       onQuestion(qData);
       if (msg.already_answered) {
         answered = true;
-        msConfirmed = true;
+        if (controller) controller.lock();
         document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
         var confirmBtn = document.getElementById('ms-confirm-btn');
         if (confirmBtn) confirmBtn.style.display = 'none';
@@ -1053,30 +775,6 @@
     var scoreEl = document.querySelector('#game-ended-view .game-ended-score');
     if (scoreEl) scoreEl.textContent = t('your_final_score') + ': ' + playerScore + ' pts';
     showGameEnded();
-  }
-
-  // ── Answer submission ──────────────────────────────────────────
-  function submitAnswer(idx) {
-    if (answered) return;
-    answered = true;
-    freezePoints();
-
-    send({
-      type: 'answer',
-      question_id: currentQuestionId,
-      answer_index: idx,
-      client_timestamp: Date.now()
-    });
-
-    // Area 4: Do NOT stop timer after answering — keep it running
-    var btns = document.querySelectorAll('.player-ans-btn');
-    btns.forEach(function (btn) {
-      btn.disabled = true;
-      if (parseInt(btn.dataset.idx) !== idx) btn.classList.add('dimmed');
-    });
-
-    document.getElementById('answered-overlay').classList.add('show');
-    // Timer keeps running — clearTimer() only called in onReveal()
   }
 
   // ── Live points counter ───────────────────────────────────────
@@ -1139,7 +837,7 @@
   function onAnswerRejected(msg) {
     if (msg.question_id !== currentQuestionId) return;
     answered = true;
-    msConfirmed = true;
+    if (controller) controller.lock();
     stopPointsCounter();
     pointsFrozen = false;
     document.querySelectorAll('.player-ans-btn, .order-arrow-btn').forEach(function (b) { b.disabled = true; });
@@ -1179,8 +877,8 @@
     var el = document.getElementById('score-breakdown');
     if (!el) return;
     var bd = msg.breakdown;
-    var qType = msg.question_type || 'mc';
-    if (!bd || msg.no_points || qType === 'wordcloud') {
+    var qtype = QLTypes.get(msg.question_type);
+    if (!bd || msg.no_points || qtype.meta.never_scores) {
       el.style.display = 'none';
       el.innerHTML = '';
       return;
@@ -1201,7 +899,7 @@
       html += row(t('bd_partial').replace('{hits}', bd.hits)
                                  .replace('{parts}', bd.parts), bd.question_points);
     } else if (bd.kind === 'full') {
-      html += row(qType === 'poll' ? t('bd_poll') : t('bd_accuracy'), bd.question_points);
+      html += row(t(qtype.player.fullLabelKey), bd.question_points);
     } else if (bd.kind === 'none') {
       html += row(t('bd_none'), 0);
     } else {
@@ -1232,44 +930,9 @@
         clearInterval(timerInterval);
         timerInterval = null;
         updateTimerDisplay(0, limit);
-        if (!answered) {
-          if (currentQuestionType === 'wordcloud') {
-            var wci = document.getElementById('wc-input');
-            var wct = wci ? wci.value.trim().slice(0, 50) : '';
-            if (wct) {
-              answered = true;
-              if (wci) wci.disabled = true;
-              send({ type: 'wordcloud_answer', question_id: currentQuestionId, text: wct });
-            }
-            document.getElementById('answered-overlay').classList.add('show');
-            var wcConfirm = document.getElementById('ms-confirm-btn');
-            if (wcConfirm) wcConfirm.style.display = 'none';
-          } else if (currentQuestionType === 'order') {
-            answered = true;
-            freezePoints();
-            sendOrderUpdate();
-            document.getElementById('answered-overlay').classList.add('show');
-            document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
-            var confirmBtn = document.getElementById('ms-confirm-btn');
-            if (confirmBtn) confirmBtn.style.display = 'none';
-          } else if (mcSelectedIdx !== null) {
-            // mc/tf/poll: player selected but hadn't pressed confirm — auto-confirm now
-            document.querySelectorAll('.player-ans-btn').forEach(function (btn) {
-              btn.classList.remove('selected-mc');
-            });
-            var cb = document.getElementById('ms-confirm-btn');
-            if (cb) cb.style.display = 'none';
-            submitAnswer(mcSelectedIdx);
-          } else {
-            // ms without confirm, or mc/tf/poll with no selection
-            if (currentQuestionType === 'ms' && msSelections.length > 0) freezePoints();
-            else stopPointsCounter();
-            document.getElementById('answered-overlay').classList.add('show');
-            document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
-            var confirmBtn = document.getElementById('ms-confirm-btn');
-            if (confirmBtn) confirmBtn.style.display = 'none';
-          }
-        }
+        // Unanswered when the ring runs out: the type decides (auto-confirm
+        // a pending pick, send what was typed, lock the buttons...)
+        if (!answered && controller) controller.timeout();
       } else {
         updateTimerDisplay(timeLeft, limit);
       }

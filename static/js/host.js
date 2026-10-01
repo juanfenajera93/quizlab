@@ -220,7 +220,7 @@
         qd.time_limit = msg.answer_time_remaining || 0;
       }
       onQuestion(qd);
-      if (qd.question_type === 'wordcloud' && msg.words) {
+      if (msg.words) {         // live word feed (word cloud)
         onWordcloudUpdate({ words: msg.words });
       }
     } else if (msg.state === 'reveal') {
@@ -503,16 +503,12 @@
   // Area 6 + 7: Build answer tiles dynamically
   function buildAnswerTiles(msg) {
     if (!msg) return;
-    var qType = msg.question_type || 'mc';
     var tiles = document.getElementById('answer-tiles');
     tiles.innerHTML = '';
-
-    if (qType === 'wordcloud') {
-      tiles.className = 'answer-tiles';
-      var note = document.createElement('div');
-      note.className = 'wc-waiting';
-      note.textContent = t('students_writing');
-      tiles.appendChild(note);
+    // A type with its own question-time display (word cloud: "students
+    // are typing") builds it; the rest get one tile per option.
+    if (QLTypes.get(msg.question_type).host.buildTiles(tiles, msg, hostHelpers)) {
+      fitGameLayout();
       return;
     }
 
@@ -609,7 +605,7 @@
     var timerC = document.getElementById('timer-container');
     if (timerC) timerC.classList.remove('urgent-ring');
 
-    var qType = msg.question_type || 'mc';
+    var qtype = QLTypes.get(msg.question_type);
     answersRevealed = true;
     revealSent = true;
     inReadPhase = false;
@@ -629,25 +625,10 @@
     if (tilesEl) tilesEl.classList.remove('read-phase');
 
     function paintTiles() {
-      if (qType === 'wordcloud') {
-        renderWordcloudReveal(msg, instant);
-      } else if (qType === 'order') {
-        renderOrderReveal(msg, instant);
-      } else {
-        var correct = correctSet(msg);
-        document.querySelectorAll('.answer-tile').forEach(function (tile) {
-          var idx = parseInt(tile.dataset.idx);
-          if (!correct) return;                   // poll: no right answer
-          if (correct.indexOf(idx) !== -1) {
-            tile.classList.add('correct');
-            if (!instant) tile.classList.add('correct-pulse');
-          } else {
-            tile.classList.add('wrong');
-          }
-        });
-        paintDistribution(msg, instant);
-      }
-      paintChart(msg);
+      // The type paints its own reveal (default: highlight the right
+      // options and put count / % / bar on every tile)
+      qtype.host.reveal.call(qtype, msg, instant, hostHelpers);
+      paintChart(msg, qtype);
       fitGameLayout();
       if (!instant) playReveal();
     }
@@ -671,55 +652,6 @@
       setTimeout(paintTiles, 500),
       setTimeout(showPanel, 1200),
     ];
-  }
-
-  function renderWordcloudReveal(msg, instant) {
-    var tiles = document.getElementById('answer-tiles');
-    tiles.innerHTML = '';
-    tiles.className = 'wordcloud-display';
-
-    var titleEl = document.createElement('div');
-    titleEl.className = 'wc-reveal-title';
-    titleEl.textContent = t('wordcloud_title');
-    tiles.appendChild(titleEl);
-
-    var cloudEl = document.createElement('div');
-    cloudEl.className = 'wc-cloud';
-    tiles.appendChild(cloudEl);
-
-    var wordsMap = msg.words || {};
-    var entries = Object.keys(wordsMap)
-      .map(function (w) { return [w, wordsMap[w]]; })
-      .sort(function (a, b) { return b[1] - a[1]; })
-      .slice(0, 20);
-    var maxFreq = entries.length > 0 ? entries[0][1] : 1;
-    var colors = ['var(--answer-a)', 'var(--answer-b)', 'var(--answer-c)',
-                  'var(--answer-d)', 'var(--answer-e)', 'var(--answer-f)'];
-    entries.forEach(function (pair, i) {
-      var size = Math.round(18 + (pair[1] / maxFreq) * (72 - 18));
-      var span = document.createElement('span');
-      span.className = 'wc-word' + (instant ? '' : ' wc-word-pop');
-      span.style.fontSize = size + 'px';
-      span.style.color = colors[i % colors.length];
-      if (!instant) span.style.animationDelay = (i * 80) + 'ms';
-      span.textContent = pair[0];
-      cloudEl.appendChild(span);
-    });
-
-    var wordFeed = document.getElementById('word-feed');
-    if (wordFeed) wordFeed.style.display = 'none';
-  }
-
-  // Option indices that are correct for the revealed question, or null when
-  // nothing is correct (poll). ms reads its full set from the payload.
-  function correctSet(msg) {
-    var qType = msg.question_type || 'mc';
-    if (qType === 'poll') return null;
-    if (qType === 'ms') {
-      if (Array.isArray(msg.correct_indices)) return msg.correct_indices;
-      try { return JSON.parse(msg.correct_json || '[]'); } catch (e) { return []; }
-    }
-    return [msg.correct_index];
   }
 
   function pct(n, d) { return d > 0 ? Math.round(n / d * 100) : 0; }
@@ -749,42 +681,12 @@
     });
   }
 
-  // Ordering: the shuffled tiles are replaced by the correct sequence,
-  // numbered 1..n, each with how many students had that item in place.
-  function renderOrderReveal(msg, instant) {
-    var tiles = document.getElementById('answer-tiles');
-    var dist = msg.distribution || {};
-    var items = msg.correct_options || (currentQuestion ? currentQuestion.options : []) || [];
-    var inPlace = dist.in_place || [];
-    var answered = dist.answered || 0;
-    tiles.innerHTML = '';
-    tiles.className = 'order-reveal';
-
-    var head = document.createElement('div');
-    head.className = 'order-reveal-head';
-    head.innerHTML =
-      '<span class="order-reveal-title">' + escapeHtml(t('order_correct_title')) + '</span>' +
-      '<span class="order-reveal-summary">' +
-        escapeHtml(t('order_full_correct')
-          .replace('{n}', dist.full_correct || 0).replace('{m}', answered)) +
-      '</span>';
-    tiles.appendChild(head);
-
-    items.forEach(function (text, i) {
-      var row = document.createElement('div');
-      row.className = 'order-reveal-row' + (instant ? '' : ' slide-up');
-      if (!instant) row.style.animationDelay = (i * 90) + 'ms';
-      var n = inPlace[i] || 0;
-      row.innerHTML =
-        '<span class="order-reveal-num">' + (i + 1) + '</span>' +
-        '<span class="order-reveal-text">' + escapeHtml(String(text)) + '</span>' +
-        '<span class="order-reveal-stat" title="' + escapeHtml(t('order_in_place').replace('{n}', n)) + '">' +
-          '<span class="tile-count">' + n + '</span>' +
-          '<span class="tile-pct">' + pct(n, answered) + '%</span>' +
-        '</span>';
-      tiles.appendChild(row);
-    });
-  }
+  // What a type's host.reveal / buildTiles may use (qtypes.js)
+  var hostHelpers = {
+    pct: pct,
+    paintDistribution: paintDistribution,
+    currentQuestion: function () { return currentQuestion; }
+  };
 
   function renderTeamStandings(teams) {
     var wrap = document.getElementById('team-standings');
@@ -943,9 +845,9 @@
     var chartTitle = document.querySelector('.chart-title');
     if (!barRows) return;
 
-    var qType = currentQuestion ? (currentQuestion.question_type || 'mc') : 'mc';
+    var chart = QLTypes.get(currentQuestion && currentQuestion.question_type).host.chart;
 
-    if (qType === 'wordcloud') {
+    if (chart === 'words') {
       barRows.style.display = 'none';
       if (wordFeed) { wordFeed.style.display = 'flex'; wordFeed.innerHTML = ''; renderedWordCount = 0; }
       if (chartTitle) chartTitle.textContent = t('words_sent');
@@ -953,9 +855,9 @@
     }
 
     if (wordFeed) wordFeed.style.display = 'none';
-    // Ordering has no per-option choice to chart; its reveal shows
-    // per-item "in place" counts on the correct sequence instead.
-    barRows.style.display = qType === 'order' ? 'none' : '';
+    // 'none': nothing per option to chart (ordering shows per-item
+    // "in place" counts on its reveal list instead)
+    barRows.style.display = chart === 'bars' ? '' : 'none';
     if (chartTitle) chartTitle.textContent = t('live_answers');
 
     barRows.innerHTML = '';
@@ -989,11 +891,11 @@
   }
 
   // Side chart at reveal: same numbers and denominator as the tiles.
-  function paintChart(msg) {
+  function paintChart(msg, qtype) {
     var dist = msg.distribution || {};
     var title = document.querySelector('.chart-title');
     var barRows = document.querySelector('.bar-rows');
-    if ((msg.question_type || 'mc') === 'wordcloud') return;
+    if (qtype.host.chart === 'words') return;
     if (title) title.textContent = t('results');
     var counts = dist.counts;
     if (!counts) {
