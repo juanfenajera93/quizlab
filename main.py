@@ -946,6 +946,8 @@ async def api_assignment_questions(code: str, db: Session = Depends(get_session)
                 "options": json.loads(q.options_json) if q.options_json else [],
                 "image_url": q.image_url or "",
                 "points": q.points,
+                **qtypes.get_kind(q.question_type).player_question_extra(
+                    {"correct_json": q.correct_json}),
             }
             for i, q in enumerate(questions)
         ],
@@ -1291,6 +1293,13 @@ async def ws_host(websocket: WebSocket, quiz_id: int, db: Session = Depends(get_
                 await game_manager.next_question(room_code)
             elif t == "end_game" and room_code:
                 await game_manager.end_game(room_code)
+
+            elif t == "host_view" and room_code:
+                try:
+                    view_qid = int(data.get("question_id", -1))
+                except (ValueError, TypeError):
+                    view_qid = -1
+                await game_manager.set_host_view(room_code, view_qid, data.get("view"))
 
             elif t == "set_teams" and room_code:
                 await game_manager.set_teams(room_code, data.get("count", 0))

@@ -125,6 +125,9 @@ class GameSession:
         self.wordcloud_answers: Dict[int, Dict[str, str]] = {}
         # Question indices already revealed (guards against double-scoring)
         self.revealed_questions: set = set()
+        # How the host arranged a revealed question on the projector (e.g.
+        # brainstorm groups), so a host reconnect shows the same board
+        self.host_views: Dict[int, dict] = {}
         # Room hygiene: locked rooms reject new joins
         self.locked = False
         # Pending server-side auto-reveal for the current question
@@ -352,6 +355,7 @@ def _dump_session_state(session: "GameSession") -> dict:
         "roster": session.roster,
         "order_correct": session.order_correct,
         "revealed_questions": list(session.revealed_questions),
+        "host_views": session.host_views,
         "wordcloud_answers": session.wordcloud_answers,
         "answer_counts": session.answer_counts,
         "question_start_time": session.question_start_time,
@@ -367,6 +371,7 @@ def _load_session_state(session: "GameSession", data: dict) -> None:
     session.roster = data.get("roster")
     session.order_correct = {int(k): v for k, v in (data.get("order_correct") or {}).items()}
     session.revealed_questions = set(data.get("revealed_questions") or [])
+    session.host_views = {int(k): v for k, v in (data.get("host_views") or {}).items()}
     session.wordcloud_answers = {
         int(k): v for k, v in (data.get("wordcloud_answers") or {}).items()
     }
@@ -1364,9 +1369,11 @@ class GameManager:
             return None
         qi = session.current_question_index
         q_type = q.get("question_type", "mc")
-        send_options = kind_of(q).player_options(q, session.order_correct.get(qi))
+        kind = kind_of(q)
+        send_options = kind.player_options(q, session.order_correct.get(qi))
 
         return {
+            **kind.player_question_extra(q),
             "type": "question",
             "id": qi,
             "text": q["text"],
@@ -1463,7 +1470,13 @@ class GameManager:
             payload = self._question_payload(session)
             if payload:
                 result.update(self._phase_info(session))
-                already = qi in player.confirmed or qi in player.answers
+                kind = kind_of(session.current_question)
+                # A multi-answer question (brainstorm) stays open on the phone
+                # until the type locks it; the phone gets back what it sent.
+                already = qi in player.confirmed or (
+                    qi in player.answers and not kind.multi_submit)
+                if kind.multi_submit and qi in player.answers:
+                    payload = dict(payload, previous=player.answers[qi])
                 result.update({
                     "question": payload,
                     "already_answered": already,
@@ -1670,6 +1683,23 @@ class GameManager:
             **self._answer_progress(session),
             **kind_of(q).host_live_update(session, question_id),
         })
+
+    async def set_host_view(self, room_code: str, question_id: int, value):
+        """The host rearranged a revealed question on the projector (manual
+        brainstorm groups). Stored per question and persisted, so a host
+        reconnect or a restart shows the same board."""
+        session = self.get_session(room_code)
+        if not session or question_id not in session.revealed_questions:
+            return
+        if not 0 <= question_id < len(session.questions):
+            return
+        q = session.questions[question_id]
+        view = kind_of(q).host_view(q, value)
+        if view is None:
+            return
+        session.host_views[question_id] = view
+        session.touch()
+        self.persist_live_session(room_code)
 
     async def handle_wordcloud_answer(
         self,

@@ -1111,3 +1111,18 @@ html, body {
 }
 .player-answers.pin-answer .pin-stage { margin: 0 auto; align-self: auto; }
 .player-answers.pin-answer .pin-img { max-height: 58vh; }
+
+/* ── Opinion answers on the phone ── */
+.open-input { min-height: 110px; resize: vertical; font-family: inherit; }
+.idea-counter { font-size: 14px; color: var(--text-muted); margin-bottom: 6px; }
+.idea-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.idea-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--violet);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 15px;
+  text-align: left;
+}
+.player-answers.scale-answer { display: block; }

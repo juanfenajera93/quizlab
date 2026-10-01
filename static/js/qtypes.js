@@ -1112,6 +1112,585 @@
     }
   });
 
+  // ── Opinion types (open, brainstorm, scale): no right answer, 0 points ──
+  function opinionReveal(icon) {
+    return function (msg) {
+      var sent = !!msg.your_text;
+      return {
+        icon: icon, color: 'var(--violet)',
+        label: sent ? t('sent') : t('no_answer'),
+        cls: sent ? 'poll' : 'wrong',
+        popup: t('no_points'), popupCls: 'score-popup wrong', flash: ''
+      };
+    };
+  }
+
+  function settingsOf(q) {
+    try {
+      var s = JSON.parse((q && q.correct_json) || '{}');
+      return s && typeof s === 'object' ? s : {};
+    } catch (e) { return {}; }
+  }
+
+  // ── open: free text, anonymous card wall ──────────────────────────
+  define('open', {
+    player: {
+      build: function (ctx) {
+        var max = (META.open || {}).max_len || 250;
+        ctx.container.className = 'player-answers';
+        var wrap = document.createElement('div');
+        wrap.className = 'wc-input-area';
+        var area = document.createElement('textarea');
+        area.className = 'wc-input open-input';
+        area.maxLength = max;
+        area.rows = 4;
+        area.placeholder = t('write_answer');
+        var count = document.createElement('div');
+        count.className = 'wc-char-count';
+        count.textContent = '0 / ' + max;
+        wrap.appendChild(area);
+        wrap.appendChild(count);
+        ctx.container.appendChild(wrap);
+
+        function submit() {
+          if (ctx.isAnswered()) return;
+          var text = area.value.trim().slice(0, max);
+          if (!text) return;
+          ctx.setAnswered();
+          area.disabled = true;
+          ctx.hideConfirm();
+          ctx.send({ type: 'submit', value: text });
+          ctx.showOverlay();
+        }
+        area.addEventListener('input', function () {
+          count.textContent = area.value.length + ' / ' + max;
+          var cb = ctx.confirmButton();
+          if (cb) cb.classList.toggle('visible', area.value.trim() !== '');
+        });
+        ctx.addConfirm(t('send_answer'), submit, false);
+        setTimeout(function () { area.focus(); }, 50);
+        return {
+          timeout: function () {
+            if (area.value.trim()) { submit(); return; }
+            area.disabled = true;
+            ctx.hideConfirm();
+            ctx.showOverlay();
+          },
+          lock: function () { area.disabled = true; }
+        };
+      },
+      reveal: opinionReveal('💬')
+    },
+    host: {
+      chart: 'none',
+      buildTiles: function (tiles) { return noteTile(tiles, 'students_writing'); },
+      correct: function () { return null; },
+      // Every answer as an anonymous card; the wall scrolls if it must
+      reveal: function (msg, instant, H) {
+        var tiles = document.getElementById('answer-tiles');
+        var cards = msg.cards || [];
+        tiles.innerHTML = '';
+        tiles.className = 'opinion-reveal';
+        var head = document.createElement('div');
+        head.className = 'order-reveal-head';
+        head.innerHTML = '<span class="order-reveal-summary">' +
+          esc(t('n_answers').replace('{n}', cards.length)) + '</span>';
+        tiles.appendChild(head);
+        var wall = document.createElement('div');
+        wall.className = 'card-wall' + (cards.length > 12 ? ' dense' : '');
+        cards.forEach(function (text, i) {
+          var c = document.createElement('div');
+          c.className = 'answer-card' + (instant ? '' : ' slide-up');
+          if (!instant) c.style.animationDelay = Math.min(i * 50, 1500) + 'ms';
+          c.textContent = text;
+          wall.appendChild(c);
+        });
+        tiles.appendChild(wall);
+      }
+    },
+    homework: {
+      render: function (body, q, api) {
+        var max = (META.open || {}).max_len || 250;
+        var area = document.createElement('textarea');
+        area.className = 'hw-input';
+        area.rows = 4;
+        area.maxLength = max;
+        area.placeholder = t('hw_write_answer', 'Escribe tu respuesta…');
+        area.value = typeof api.get() === 'string' ? api.get() : '';
+        area.addEventListener('input', function () { api.set(area.value.trim() || null); });
+        body.appendChild(area);
+      }
+    },
+    editor: { short: 'Abierta', pick: 'Abierta', options: 'none', correct: 'none',
+              requireTwoOptions: false, note: 'open-note' }
+  });
+
+  // ── brainstorm: several ideas, grouped on the projector ───────────
+  define('brainstorm', {
+    player: {
+      build: function (ctx) {
+        var max = ctx.q.max_ideas || 3;
+        var maxLen = (META.brainstorm || {}).max_len || 80;
+        var ideas = Array.isArray(ctx.q.previous) ? ctx.q.previous.slice() : [];
+        ctx.container.className = 'player-answers';
+        var list = document.createElement('div');
+        list.className = 'idea-list';
+        var counter = document.createElement('div');
+        counter.className = 'idea-counter';
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'wc-input';
+        input.maxLength = maxLen;
+        input.placeholder = t('idea_placeholder');
+        input.autocomplete = 'off';
+        ctx.container.appendChild(counter);
+        ctx.container.appendChild(list);
+        ctx.container.appendChild(input);
+
+        function render() {
+          list.innerHTML = '';
+          ideas.forEach(function (idea) {
+            var chip = document.createElement('div');
+            chip.className = 'idea-chip';
+            chip.textContent = idea;
+            list.appendChild(chip);
+          });
+          counter.textContent = t('ideas_count').replace('{n}', ideas.length).replace('{m}', max);
+        }
+
+        function add() {
+          if (ctx.isAnswered()) return;
+          var idea = input.value.replace(/\s+/g, ' ').trim().slice(0, maxLen);
+          if (!idea || ideas.length >= max) return;
+          ideas.push(idea);
+          input.value = '';
+          render();
+          ctx.send({ type: 'submit', value: idea });
+          if (ideas.length >= max) done();
+          else input.focus();
+        }
+
+        function done() {
+          ctx.setAnswered();
+          input.disabled = true;
+          ctx.hideConfirm();
+          ctx.showOverlay();
+        }
+
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); add(); }
+        });
+        render();
+        ctx.addConfirm(t('add_idea'), add, true);
+        if (ideas.length >= max) done();
+        setTimeout(function () { input.focus(); }, 50);
+        return {
+          timeout: function () {
+            if (input.value.trim()) add();
+            if (!ctx.isAnswered()) done();
+          },
+          lock: function () { input.disabled = true; }
+        };
+      },
+      reveal: opinionReveal('💡')
+    },
+    host: {
+      chart: 'none',
+      buildTiles: function (tiles) { return noteTile(tiles, 'students_writing'); },
+      correct: function () { return null; },
+      reveal: function (msg, instant, H) {
+        brainstormBoard(msg, instant, H);
+      }
+    },
+    homework: {
+      render: function (body, q, api) {
+        var max = q.max_ideas || 3;
+        var maxLen = (META.brainstorm || {}).max_len || 80;
+        var current = Array.isArray(api.get()) ? api.get() : [];
+        var inputs = [];
+        for (var i = 0; i < max; i++) {
+          var input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'hw-input hw-idea';
+          input.maxLength = maxLen;
+          input.placeholder = t('idea_n').replace('{n}', i + 1);
+          input.value = current[i] || '';
+          input.addEventListener('input', sync);
+          inputs.push(input);
+          body.appendChild(input);
+        }
+        function sync() {
+          var ideas = inputs.map(function (x) { return x.value.trim(); })
+                            .filter(function (x) { return x; });
+          api.set(ideas.length ? ideas : null);
+        }
+      }
+    },
+    editor: {
+      short: 'Ideas', pick: 'Lluvia de ideas', options: 'none', correct: 'none',
+      requireTwoOptions: false,
+      extra: {
+        render: function (el, q) {
+          var n = (q && q.question_type === 'brainstorm') ? (settingsOf(q).ideas || 3) : 3;
+          el.innerHTML =
+            '<label>Ideas por estudiante</label>' +
+            '<input type="number" id="bs-ideas" min="1" max="10" step="1" style="width:80px">' +
+            '<p class="extra-hint">Cada estudiante puede enviar hasta este número de ideas (1-10). ' +
+            'En la pantalla se agrupan solas por palabras en común; luego puedes moverlas y renombrar los grupos.</p>';
+          el.querySelector('#bs-ideas').value = n;
+        },
+        read: function (el) {
+          var n = parseInt(el.querySelector('#bs-ideas').value, 10);
+          if (!(n >= 1 && n <= 10)) return { error: 'Ideas por estudiante: de 1 a 10' };
+          return { correct_json: JSON.stringify({ ideas: n }), options: [] };
+        }
+      }
+    }
+  });
+
+  // The projector board: automatic groups from the server (qtypes.py
+  // group_ideas), or manual groups the host arranges by dragging cards
+  // between columns and renaming them. Every manual change is saved on the
+  // server (host_view), so a host reconnect shows the same board.
+  function brainstormBoard(msg, instant, H) {
+    var tiles = document.getElementById('answer-tiles');
+    var ideas = msg.ideas || [];
+    var auto = msg.auto_groups || [];
+    var saved = msg.saved_view || null;
+    var qi = (H.currentQuestion() || {}).id;
+    var state = {
+      mode: saved ? saved.mode : 'auto',
+      manual: saved && saved.groups && saved.groups.length ? saved.groups : null
+    };
+
+    function copy(groups) {
+      return groups.map(function (g) { return { name: g.name, ideas: g.ideas.slice() }; });
+    }
+
+    function save() {
+      H.send({ type: 'host_view', question_id: qi,
+               view: { mode: state.mode, groups: state.manual || [] } });
+    }
+
+    function groupsShown() {
+      if (state.mode !== 'manual') return auto;
+      // ideas in no manual group (should not happen) land in the last one
+      var seen = {};
+      state.manual.forEach(function (g) { g.ideas.forEach(function (i) { seen[i] = 1; }); });
+      var missing = ideas.map(function (_, i) { return i; }).filter(function (i) { return !seen[i]; });
+      if (missing.length) {
+        if (!state.manual.length) state.manual.push({ name: t('other_ideas'), ideas: [] });
+        state.manual[state.manual.length - 1].ideas = state.manual[state.manual.length - 1].ideas.concat(missing);
+      }
+      return state.manual;
+    }
+
+    function render(animate) {
+      tiles.innerHTML = '';
+      tiles.className = 'opinion-reveal';
+      var head = document.createElement('div');
+      head.className = 'bs-toolbar';
+      head.innerHTML =
+        '<span class="order-reveal-summary">' +
+          esc(t('n_ideas').replace('{n}', ideas.length)) + '</span>' +
+        '<span class="bs-modes">' +
+          '<button type="button" class="btn btn-ghost btn-sm bs-mode" data-mode="auto">' + esc(t('group_auto')) + '</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm bs-mode" data-mode="manual">' + esc(t('group_manual')) + '</button>' +
+          (state.mode === 'manual'
+            ? '<button type="button" class="btn btn-ghost btn-sm bs-add">' + esc(t('new_group')) + '</button>' +
+              '<button type="button" class="btn btn-ghost btn-sm bs-reset">' + esc(t('reset_groups')) + '</button>'
+            : '') +
+        '</span>';
+      tiles.appendChild(head);
+      head.querySelectorAll('.bs-mode').forEach(function (b) {
+        b.classList.toggle('active', b.dataset.mode === state.mode);
+        b.addEventListener('click', function () {
+          state.mode = b.dataset.mode;
+          // Manual starts from the automatic grouping the first time
+          if (state.mode === 'manual' && !state.manual) state.manual = copy(auto);
+          save();
+          render(false);
+        });
+      });
+      var add = head.querySelector('.bs-add');
+      if (add) add.addEventListener('click', function () {
+        state.manual.push({ name: t('new_group_name'), ideas: [] });
+        save();
+        render(false);
+      });
+      var reset = head.querySelector('.bs-reset');
+      if (reset) reset.addEventListener('click', function () {
+        state.manual = copy(auto);
+        save();
+        render(false);
+      });
+
+      var board = document.createElement('div');
+      board.className = 'bs-board' + (state.mode === 'manual' ? ' manual' : '');
+      groupsShown().forEach(function (g, gi) {
+        var col = document.createElement('div');
+        col.className = 'bs-group';
+        col.dataset.group = gi;
+        var title;
+        if (state.mode === 'manual') {
+          title = document.createElement('input');
+          title.className = 'bs-group-name';
+          title.value = g.name;
+          title.maxLength = 40;
+          title.addEventListener('change', function () {
+            g.name = title.value.trim() || t('new_group_name');
+            save();
+          });
+        } else {
+          title = document.createElement('div');
+          title.className = 'bs-group-name';
+          title.textContent = g.name;
+        }
+        var count = document.createElement('span');
+        count.className = 'bs-group-count';
+        count.textContent = g.ideas.length;
+        var top = document.createElement('div');
+        top.className = 'bs-group-head';
+        top.appendChild(title);
+        top.appendChild(count);
+        if (state.mode === 'manual' && !g.ideas.length) {
+          var del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'bs-group-del';
+          del.textContent = '×';
+          del.title = t('delete_group');
+          del.addEventListener('click', function () {
+            state.manual.splice(gi, 1);
+            save();
+            render(false);
+          });
+          top.appendChild(del);
+        }
+        col.appendChild(top);
+        g.ideas.forEach(function (id, k) {
+          var card = document.createElement('div');
+          card.className = 'bs-card' + (animate ? ' slide-up' : '');
+          if (animate) card.style.animationDelay = Math.min((gi * 4 + k) * 40, 1500) + 'ms';
+          card.dataset.idea = id;
+          card.textContent = ideas[id];
+          if (state.mode === 'manual') dragCard(card, col);
+          col.appendChild(card);
+        });
+        board.appendChild(col);
+      });
+      tiles.appendChild(board);
+    }
+
+    // Pointer-based drag (mouse, pen or touch): a ghost follows the
+    // pointer; dropping on another column moves the idea there.
+    function dragCard(card, fromCol) {
+      card.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        var id = parseInt(card.dataset.idea, 10);
+        var r = card.getBoundingClientRect();
+        var ghost = card.cloneNode(true);
+        ghost.classList.add('bs-ghost');
+        ghost.style.width = r.width + 'px';
+        document.body.appendChild(ghost);
+        card.classList.add('dragging');
+        function place(ev) {
+          ghost.style.left = (ev.clientX - r.width / 2) + 'px';
+          ghost.style.top = (ev.clientY - 16) + 'px';
+        }
+        place(e);
+        function move(ev) { place(ev); }
+        function up(ev) {
+          document.removeEventListener('pointermove', move);
+          document.removeEventListener('pointerup', up);
+          ghost.remove();
+          card.classList.remove('dragging');
+          var under = document.elementFromPoint(ev.clientX, ev.clientY);
+          var col = under && under.closest ? under.closest('.bs-group') : null;
+          if (!col || col === fromCol) return;
+          var to = parseInt(col.dataset.group, 10);
+          var from = parseInt(fromCol.dataset.group, 10);
+          state.manual[from].ideas = state.manual[from].ideas.filter(function (x) { return x !== id; });
+          state.manual[to].ideas.push(id);
+          save();
+          render(false);
+        }
+        document.addEventListener('pointermove', move);
+        document.addEventListener('pointerup', up);
+      });
+    }
+
+    render(!instant);
+  }
+
+  // ── scale: 1..5 or 1..10, distribution and average ────────────────
+  function scaleLabels(container, labels, max, cls) {
+    var row = document.createElement('div');
+    row.className = cls || 'scale-labels';
+    ['low', 'mid', 'high'].forEach(function (pos, i) {
+      var s = document.createElement('span');
+      s.className = 'scale-label ' + pos;
+      s.textContent = labels[i] || '';
+      row.appendChild(s);
+    });
+    container.appendChild(row);
+  }
+
+  function scaleButtons(container, max, isSelected, onPick) {
+    var grid = document.createElement('div');
+    grid.className = 'scale-buttons' + (max > 5 ? ' ten' : '');
+    for (var v = 1; v <= max; v++) {
+      (function (v) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'scale-btn' + (isSelected(v) ? ' sel' : '');
+        b.dataset.value = v;
+        b.textContent = v;
+        b.addEventListener('click', function () { onPick(v, b); });
+        grid.appendChild(b);
+      })(v);
+    }
+    container.appendChild(grid);
+    return grid;
+  }
+
+  define('scale', {
+    player: {
+      build: function (ctx) {
+        var max = ctx.q.scale_max || 5;
+        var picked = null;
+        ctx.container.className = 'player-answers scale-answer';
+        var grid = scaleButtons(ctx.container, max, function () { return false; }, function (v, b) {
+          if (ctx.isAnswered()) return;
+          picked = v;
+          grid.querySelectorAll('.scale-btn').forEach(function (x) { x.classList.toggle('sel', x === b); });
+          var cb = ctx.confirmButton();
+          if (cb) cb.classList.add('visible');
+        });
+        scaleLabels(ctx.container, ctx.q.options || [], max);
+
+        function submit() {
+          if (ctx.isAnswered() || picked === null) return;
+          ctx.setAnswered();
+          grid.querySelectorAll('.scale-btn').forEach(function (x) { x.disabled = true; });
+          ctx.hideConfirm();
+          ctx.send({ type: 'submit', value: picked });
+          ctx.showOverlay();
+        }
+        ctx.addConfirm(t('confirm'), submit, false);
+        return {
+          timeout: function () {
+            if (picked !== null) { submit(); return; }
+            grid.querySelectorAll('.scale-btn').forEach(function (x) { x.disabled = true; });
+            ctx.hideConfirm();
+            ctx.showOverlay();
+          },
+          lock: function () {
+            grid.querySelectorAll('.scale-btn').forEach(function (x) { x.disabled = true; });
+          }
+        };
+      },
+      reveal: opinionReveal('📊')
+    },
+    host: {
+      chart: 'none',
+      buildTiles: function (tiles, msg) {
+        // The scale and its labels while students vote
+        tiles.className = 'scale-reveal';
+        var hist = document.createElement('div');
+        hist.className = 'scale-hist waiting';
+        for (var v = 1; v <= (msg.scale_max || 5); v++) {
+          var col = document.createElement('div');
+          col.className = 'scale-col';
+          col.innerHTML = '<span class="scale-bar" style="height:0%"></span><span class="scale-value">' + v + '</span>';
+          hist.appendChild(col);
+        }
+        tiles.appendChild(hist);
+        scaleLabels(tiles, msg.options || [], msg.scale_max || 5);
+        return true;
+      },
+      correct: function () { return null; },
+      reveal: function (msg, instant, H) {
+        var tiles = document.getElementById('answer-tiles');
+        var dist = msg.distribution || {};
+        var counts = dist.scale_counts || [];
+        var q = H.currentQuestion() || {};
+        var answered = dist.answered || 0;
+        var most = Math.max.apply(null, counts.concat([1]));
+        tiles.innerHTML = '';
+        tiles.className = 'scale-reveal';
+        var head = document.createElement('div');
+        head.className = 'order-reveal-head';
+        head.innerHTML =
+          '<span class="order-reveal-title">' + esc(t('average')) + ': ' +
+            '<span class="scale-avg">' + (dist.average === null || dist.average === undefined
+              ? '—' : String(dist.average.toFixed(1)).replace('.', t('decimal_sep'))) + '</span>' +
+            ' / ' + (dist.max || counts.length) + '</span>' +
+          '<span class="order-reveal-summary">' +
+            esc(t('reveal_answered').replace('{n}', answered).replace('{m}', dist.players || answered)) + '</span>';
+        tiles.appendChild(head);
+        var hist = document.createElement('div');
+        hist.className = 'scale-hist';
+        counts.forEach(function (c, i) {
+          var col = document.createElement('div');
+          col.className = 'scale-col';
+          var h = Math.round(c / most * 100);
+          col.innerHTML =
+            '<span class="scale-count">' + c + ' <small>' + H.pct(c, answered) + '%</small></span>' +
+            '<span class="scale-bar" style="height:' + (instant ? h : 0) + '%"></span>' +
+            '<span class="scale-value">' + (i + 1) + '</span>';
+          hist.appendChild(col);
+          if (!instant) {
+            var bar = col.querySelector('.scale-bar');
+            setTimeout(function () { bar.style.height = h + '%'; }, 60 + i * 60);
+          }
+        });
+        tiles.appendChild(hist);
+        scaleLabels(tiles, q.options || [], counts.length);
+      }
+    },
+    homework: {
+      render: function (body, q, api) {
+        var max = q.scale_max || 5;
+        var grid = scaleButtons(body, max, function (v) { return api.get() === v; }, function (v, b) {
+          api.set(v);
+          grid.querySelectorAll('.scale-btn').forEach(function (x) { x.classList.toggle('sel', x === b); });
+        });
+        scaleLabels(body, q.options || [], max);
+      }
+    },
+    editor: {
+      short: 'Escala', pick: 'Escala', options: 'none', correct: 'none',
+      requireTwoOptions: false,
+      extra: {
+        render: function (el, q) {
+          var isScale = q && q.question_type === 'scale';
+          var max = isScale ? (settingsOf(q).max || 5) : 5;
+          var labels = isScale && q.options && q.options.length === 3
+            ? q.options : ((META.scale || {}).default_options || ['', '', '']);
+          el.innerHTML =
+            '<label>Escala</label>' +
+            '<div class="radio-group">' +
+              '<label class="radio-btn"><input type="radio" name="scale-max" value="5"> 1 a 5</label>' +
+              '<label class="radio-btn"><input type="radio" name="scale-max" value="10"> 1 a 10</label>' +
+            '</div>' +
+            '<label style="margin-top:10px">Etiquetas</label>' +
+            '<input type="text" class="scale-label-input" placeholder="En 1 (p. ej. Nada seguro)">' +
+            '<input type="text" class="scale-label-input" placeholder="En el medio">' +
+            '<input type="text" class="scale-label-input" placeholder="Arriba (p. ej. Muy seguro)">';
+          el.querySelector('input[name="scale-max"][value="' + max + '"]').checked = true;
+          el.querySelectorAll('.scale-label-input').forEach(function (inp, i) { inp.value = labels[i] || ''; });
+        },
+        read: function (el) {
+          var max = parseInt((el.querySelector('input[name="scale-max"]:checked') || {}).value, 10) || 5;
+          var labels = Array.prototype.map.call(el.querySelectorAll('.scale-label-input'),
+            function (inp) { return inp.value.trim(); });
+          if (labels.some(function (l) { return !l; })) return { error: 'Escribe las tres etiquetas de la escala' };
+          return { correct_json: JSON.stringify({ max: max }), options: labels };
+        }
+      }
+    }
+  });
+
   window.QLTypes = {
     LETTERS: LETTERS,
     all: TYPES,

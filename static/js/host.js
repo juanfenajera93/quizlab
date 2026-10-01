@@ -687,6 +687,7 @@
     paintDistribution: paintDistribution,
     currentQuestion: function () { return currentQuestion; },
     fit: function () { fitGameLayout(); },
+    send: function (obj) { send(obj); },
     // A reveal that draws the image itself (pin on image)
     hideQuestionImage: function () {
       var img = document.getElementById('q-image');

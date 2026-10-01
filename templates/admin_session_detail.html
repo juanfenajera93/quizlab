@@ -91,6 +91,10 @@
               {% for w in s.distribution %}
               <span class="dist-word">{{ w.word }} <em>×{{ w.count }}</em></span>
               {% endfor %}
+            {% elif s.view == 'texts' and s.distribution %}
+              <details><summary>{{ s.distribution|length }} respuestas</summary>
+              {% for txt in s.distribution %}<div class="dist-text">{{ txt }}</div>{% endfor %}
+              </details>
             {% elif s.view == 'bars' and s.distribution %}
               {% for d in s.distribution %}
               <span class="dist-bar-row">
@@ -134,5 +138,6 @@
 .dist-word { display:inline-block; background:var(--surface-2); border:1px solid var(--border);
   border-radius:4px; padding:2px 7px; margin:2px 2px; font-size:13px; }
 .dist-word em { font-style:normal; color:var(--text-muted); font-size:11px; }
+.dist-text { font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); }
 </style>
 {% endblock %}

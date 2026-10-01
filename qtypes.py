@@ -23,6 +23,7 @@ question_type.
 import json
 import math
 import random
+import re
 import unicodedata
 from collections import Counter
 from typing import Dict, List, Optional, Tuple
@@ -82,8 +83,11 @@ class QuestionKind:
     # implement normalize_submit().
     messages: Tuple[str, ...] = ()
     # How the session-detail page shows the stored answers_json:
-    # "bars" (per-option %), "words" (top answers) or None
+    # "bars" (per-option %), "words" (top answers), "texts" or None
     stats_view_kind: Optional[str] = None
+    # Several "submit" messages per player (brainstorm ideas): a rejoin
+    # only counts as answered once the type locked the question.
+    multi_submit = False
 
     @property
     def spec(self) -> Optional[question_spec.QuestionType]:
@@ -118,6 +122,10 @@ class QuestionKind:
     def player_options(self, q: dict, state) -> list:
         """The options as the phones (and the host tiles) see them."""
         return list(q.get("options", []))
+
+    def player_question_extra(self, q: dict) -> dict:
+        """Settings the phones need with the question (never the answer)."""
+        return {}
 
     def scoring_key(self, q: dict, state) -> str:
         """The correct_json scoring compares against in a live game."""
@@ -156,6 +164,11 @@ class QuestionKind:
     def host_live_update(self, session, qi: int) -> dict:
         """Extra fields for the host's answer_counts after a "submit"."""
         return {}
+
+    def host_view(self, q: dict, value) -> Optional[dict]:
+        """Validate a projector-side arrangement the host saves for the
+        revealed question (brainstorm groups) -> what to store, or None."""
+        return None
 
     def distribution(self, q: dict, answers: list, state) -> dict:
         """Type-specific part of the host reveal's distribution, from every
@@ -631,6 +644,292 @@ class PinOnImage(QuestionKind):
         return problems
 
 
+# ─── Opinion types: no right answer, 0 points, no live counter ─────────────
+
+class _Opinion(QuestionKind):
+    scored = False
+    never_scores = True
+    messages = ("submit",)
+
+    def settings(self, q) -> dict:
+        spec = self.spec
+        defaults = {st.name: st.default for st in spec.settings} if spec else {}
+        try:
+            stored = json.loads(q.get("correct_json") or "{}")
+        except (ValueError, TypeError):
+            stored = {}
+        return {**defaults, **(stored if isinstance(stored, dict) else {})}
+
+    def score(self, key, answer, out):
+        # Answering counts as participation (like poll), but these types are
+        # never worth points, whatever `points` holds.
+        if not self.valid(key, answer):
+            return out.wrong()
+        return {"points": 0, "correct": True, "kind": "full"}
+
+    def valid(self, key, answer) -> bool:
+        return answer not in (None, "", [], -1)
+
+    def player_reveal_extra(self, q, player, qi):
+        # The phone says "sent" / "no answer"
+        return {"your_text": "✓" if player.answers.get(qi) not in (None, "", []) else ""}
+
+    def validate_question(self, q):
+        spec = self.spec
+        if spec and spec.settings:
+            err = question_spec.settings_error(spec, self.settings(q))
+            if err:
+                return [f"{spec.label}: {err}"]
+        return []
+
+
+class OpenEnded(_Opinion):
+    """Free text up to OPEN_MAX_LEN; an anonymous card wall."""
+    code = "open"
+    stats_view_kind = "texts"
+    MAX_LEN = question_spec.OPEN_MAX_LEN
+
+    def _clean(self, value):
+        if not isinstance(value, str):
+            return None
+        text = " ".join(value.split())[:self.MAX_LEN].strip()
+        return text or None
+
+    def normalize_submit(self, q, value, previous):
+        text = self._clean(value)
+        return (text, True) if text else None
+
+    def homework_answer(self, q, value):
+        return self._clean(value)
+
+    def host_reveal_extra(self, q, session, qi):
+        # Anonymous: texts only, in the order they arrived
+        return {"cards": [p.answers[qi] for p in session.players.values()
+                          if isinstance(p.answers.get(qi), str)]}
+
+    def your_answer_text(self, q, answer, seen_options):
+        return answer if isinstance(answer, str) and answer else "—"
+
+    def analytics_answers(self, q, qi, players, session):
+        return json.dumps([p.answers[qi] for p in players
+                           if isinstance(p.answers.get(qi), str)], ensure_ascii=False)
+
+    def stats_view(self, answers_raw, total):
+        return [str(t) for t in answers_raw] if isinstance(answers_raw, list) else []
+
+
+# Words that say nothing about an idea's topic (Spanish + English)
+STOPWORDS = frozenset("""
+a al algo algun alguna algunas alguno algunos ante antes aqui asi aun aunque
+bien cada casi como con contra cual cuales cuando de del desde donde dos e el
+ella ellas ello ellos en entre era es esa esas ese eso esos esta estan estas
+este esto estos fue fueron ha hace hacer han hay la las le les lo los mas me
+mi mis mucho muy ni no nos nuestra nuestro o otra otras otro otros para pero
+poco por porque que quien se ser si sin sobre son su sus tambien tan tanto te
+tener tiene tienen todo todos tu tus un una unas uno unos usar y ya yo
+about after all also an and any are as at be been but by can could do does
+for from had has have how if in into is it its just more most my no not of
+on or other our out so some such than that the their them then there these
+they this to too use used using very was we were what when which who will
+with would you your
+""".split())
+
+_WORD = re.compile(r"[a-z0-9ñ]+")            # on normalize_text() output
+_LETTERS = re.compile(r"[^\W\d_]+")          # words as students wrote them
+
+
+def idea_tokens(text: str) -> set:
+    """Topic tokens of an idea: lower case, no accents, no stopwords, cut
+    to a 5-letter prefix so practica / practicar / practicos match."""
+    words = _WORD.findall(normalize_text(text))
+    return {w[:5] for w in words if w not in STOPWORDS and len(w) > 1}
+
+
+def group_ideas(texts: List[str], threshold: float = 0.5) -> List[dict]:
+    """Automatic brainstorm grouping, no AI and no external service.
+
+    Greedy single-link: each idea joins the existing group holding the idea
+    it overlaps most with (shared tokens / tokens of the smaller idea,
+    >= threshold), else starts a group. Ideas with no topic tokens join a
+    group only when identical once normalised. Groups of one are pooled
+    into "Otras ideas". Returns [{"name", "ideas": [indices into texts]}],
+    largest groups first."""
+    tokens = [idea_tokens(t) for t in texts]
+    groups: List[List[int]] = []
+    for i, tok in enumerate(tokens):
+        best, best_sim = None, 0.0
+        for g, members in enumerate(groups):
+            for j in members:
+                other = tokens[j]
+                if tok and other:
+                    sim = len(tok & other) / min(len(tok), len(other))
+                else:
+                    sim = 1.0 if normalize_text(texts[i]) == normalize_text(texts[j]) else 0.0
+                if sim > best_sim:
+                    best, best_sim = g, sim
+        if best is not None and best_sim >= threshold:
+            groups[best].append(i)
+        else:
+            groups.append([i])
+
+    def name(members):
+        # The most frequent topic word, in the spelling students used most
+        stem_count = Counter(st for j in members for st in tokens[j])
+        if not stem_count:
+            return texts[members[0]][:40]
+        top = max(stem_count.items(), key=lambda kv: (kv[1], len(kv[0]), kv[0]))[0]
+        words = Counter(w for j in members for w in _LETTERS.findall(texts[j].lower())
+                        if normalize_text(w)[:5] == top)
+        word = words.most_common(1)[0][0] if words else top
+        return word[:1].upper() + word[1:]
+
+    multi = [g for g in groups if len(g) > 1]
+    singles = [g[0] for g in groups if len(g) == 1]
+    out = [{"name": name(g), "ideas": g}
+           for g in sorted(multi, key=lambda g: (-len(g), g[0]))]
+    if singles:
+        out.append({"name": "Otras ideas" if out else "Ideas", "ideas": singles})
+    return out
+
+
+class Brainstorm(_Opinion):
+    """Several short ideas per student; the projector groups them."""
+    code = "brainstorm"
+    stats_view_kind = "words"
+    multi_submit = True
+    MAX_LEN = question_spec.IDEA_MAX_LEN
+
+    def max_ideas(self, q) -> int:
+        return int(self.settings(q).get("ideas", 3))
+
+    def player_question_extra(self, q):
+        return {"max_ideas": self.max_ideas(q)}
+
+    def normalize_submit(self, q, value, previous):
+        if not isinstance(value, str):
+            return None
+        idea = " ".join(value.split())[:self.MAX_LEN].strip()
+        ideas = list(previous) if isinstance(previous, list) else []
+        if not idea or len(ideas) >= self.max_ideas(q):
+            return None
+        ideas.append(idea)
+        return ideas, len(ideas) >= self.max_ideas(q)
+
+    def homework_answer(self, q, value):
+        if isinstance(value, str):
+            value = value.split("\n")
+        if not isinstance(value, list):
+            return None
+        ideas = [" ".join(str(v).split())[:self.MAX_LEN] for v in value
+                 if isinstance(v, str) and v.strip()]
+        return ideas[:self.max_ideas(q)] or None
+
+    @staticmethod
+    def ideas(session, qi) -> List[str]:
+        """Every idea of the room, anonymous, in a stable order (players in
+        join order, ideas in the order sent): an idea's id is its index."""
+        return [idea for p in session.players.values()
+                for idea in (p.answers.get(qi) or []) if isinstance(idea, str)]
+
+    def host_reveal_extra(self, q, session, qi):
+        ideas = self.ideas(session, qi)
+        return {"ideas": ideas, "auto_groups": group_ideas(ideas),
+                "saved_view": session.host_views.get(qi)}
+
+    def host_view(self, q, value):
+        """{"mode": "auto"|"manual", "groups": [{"name", "ideas": [ids]}]}"""
+        if not isinstance(value, dict) or value.get("mode") not in ("auto", "manual"):
+            return None
+        groups = []
+        for g in value.get("groups") or []:
+            if not isinstance(g, dict):
+                return None
+            ids = [i for i in g.get("ideas") or [] if isinstance(i, int) and 0 <= i < 1000]
+            groups.append({"name": str(g.get("name") or "")[:40], "ideas": ids})
+        return {"mode": value["mode"], "groups": groups[:50]}
+
+    def your_answer_text(self, q, answer, seen_options):
+        if isinstance(answer, list) and answer:
+            return " · ".join(str(a) for a in answer)
+        return "—"
+
+    def analytics_answers(self, q, qi, players, session):
+        """The groups as the teacher left them (manual) or the automatic
+        ones: {group name: idea count}."""
+        ideas = [idea for p in players for idea in (p.answers.get(qi) or [])
+                 if isinstance(idea, str)]
+        view = session.host_views.get(qi) if session else None
+        groups = (view["groups"] if view and view.get("mode") == "manual"
+                  else group_ideas(ideas))
+        return json.dumps({g["name"] or "—": len(g["ideas"]) for g in groups if g["ideas"]},
+                          ensure_ascii=False)
+
+    def stats_view(self, answers_raw, total):
+        return _top_words_view(answers_raw, total)
+
+
+class Scale(_Opinion):
+    """Rate from 1 to max (5 or 10); distribution and average."""
+    code = "scale"
+    stats_view_kind = "bars"
+
+    def top(self, q) -> int:
+        return int(self.settings(q).get("max", 5))
+
+    def valid(self, key, answer) -> bool:
+        return self._value({"correct_json": key}, answer) is not None
+
+    def player_question_extra(self, q):
+        return {"scale_max": self.top(q)}
+
+    def _value(self, q, value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if value != int(value) or not 1 <= value <= self.top(q):
+            return None
+        return int(value)
+
+    def normalize_submit(self, q, value, previous):
+        v = self._value(q, value)
+        return (v, True) if v is not None else None
+
+    def homework_answer(self, q, value):
+        return self._value(q, value)
+
+    def player_options(self, q, state):
+        return list(q.get("options", []))          # the three labels
+
+    def distribution(self, q, answers, state):
+        top = self.top(q)
+        counts = [0] * top
+        for a in answers:
+            v = self._value(q, a)
+            if v is not None:
+                counts[v - 1] += 1
+        n = sum(counts)
+        avg = round(sum((i + 1) * c for i, c in enumerate(counts)) / n, 2) if n else None
+        return {"scale_counts": counts, "average": avg, "max": top}
+
+    def your_answer_text(self, q, answer, seen_options):
+        v = self._value(q, answer)
+        return f"{v} / {self.top(q)}" if v is not None else "—"
+
+    def analytics_answers(self, q, qi, players, session):
+        counts = [0] * self.top(q)
+        for p in players:
+            v = self._value(q, p.answers.get(qi))
+            if v is not None:
+                counts[v - 1] += 1
+        return json.dumps(counts)
+
+    def stats_view(self, answers_raw, total):
+        if not isinstance(answers_raw, list):
+            return []
+        return [{"label": str(i + 1), "count": c,
+                 "pct": round(c / total * 100, 1) if total > 0 else 0.0}
+                for i, c in enumerate(answers_raw)]
+
+
 KINDS: Dict[str, QuestionKind] = {k.code: k for k in [
     SingleChoice("mc"),
     SingleChoice("tf"),
@@ -640,6 +939,9 @@ KINDS: Dict[str, QuestionKind] = {k.code: k for k in [
     WordCloud(),
     ShortAnswer(),
     PinOnImage(),
+    OpenEnded(),
+    Brainstorm(),
+    Scale(),
 ]}
 
 _UNKNOWN = QuestionKind()

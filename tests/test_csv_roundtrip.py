@@ -74,6 +74,7 @@ class TemplateRoundTrip(unittest.TestCase):
             "short": '["Mediana", "la mediana"]',
             "pin": '{"zones": [{"x": 0.5, "y": 0.175, "r": 0.05}], '
                    '"falloff": 1.0, "aspect": 1.0895}',
+            "open": "", "brainstorm": '{"ideas": 3}', "scale": '{"max": 5}',
         })
 
     def test_game_engine_scores_each_example_answer_as_correct(self):

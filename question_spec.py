@@ -98,9 +98,21 @@ CORRECT_ORDER = "order"      # blank: the options are already in correct order
 CORRECT_NONE = "none"        # blank: nothing is correct (poll, wordcloud)
 CORRECT_ANSWERS = "answers"  # accepted texts separated by | (short)
 CORRECT_ZONES = "zones"      # circles on the image, in percent (pin)
+CORRECT_SETTINGS = "settings"  # no right answer; key=value settings (brainstorm, scale)
 
 SHORT_MAX_LEN = 20           # characters a student can type for `short`
 PIN_DEFAULT_FALLOFF = 1.0    # zone radii outside a zone that still score
+OPEN_MAX_LEN = 250           # characters for an open-ended answer
+IDEA_MAX_LEN = 80            # characters per brainstorm idea
+
+
+@dataclass(frozen=True)
+class Setting:
+    """A key=value setting a type reads from the `correct` cell."""
+    name: str
+    choices: tuple               # allowed whole numbers
+    default: int
+    description: str
 
 
 @dataclass(frozen=True)
@@ -123,6 +135,7 @@ class QuestionType:
     example_answer: object = None        # a player answer the example scores
                                          # as correct (verified by tests)
     requires_image: bool = False         # image_url is mandatory
+    settings: tuple = ()                 # Setting entries (CORRECT_SETTINGS)
 
 
 QUESTION_TYPES = {t.code: t for t in [
@@ -322,6 +335,73 @@ QUESTION_TYPES = {t.code: t for t in [
         },
         example_answer={"x": 0.51, "y": 0.18},
     ),
+    QuestionType(
+        code="open", label="Open-ended",
+        summary=f"Students write a free answer (max {OPEN_MAX_LEN} "
+                "characters); the projector shows them as an anonymous card "
+                "wall. No right answer, no points.",
+        min_options=0, max_options=0,
+        correct_kind=CORRECT_NONE,
+        correct_rule="Leave blank. Leave all option columns blank too.",
+        self_check="`open`: no options, `correct` blank, points 0.",
+        scoring="Never scored: points are always 0.",
+        default_time=60, time_guidance="45-90 s",
+        default_points=0, fixed_points=0,
+        example={
+            "question": "¿Qué parte del análisis de datos te gustaría "
+                        "practicar más y por qué?",
+            "type": "open", "time_limit": "60", "points": "0",
+        },
+        example_answer="Limpiar datos, porque siempre me tardo mucho.",
+    ),
+    QuestionType(
+        code="brainstorm", label="Brainstorm",
+        summary="Each student sends several short ideas; the projector groups "
+                "similar ideas (automatically, then adjustable by hand). No "
+                "right answer, no points.",
+        min_options=0, max_options=0,
+        correct_kind=CORRECT_SETTINGS,
+        correct_rule="Optional: ideas=N, how many ideas each student can send "
+                     "(1-10, blank = 3). Leave the option columns blank.",
+        self_check="`brainstorm`: no options, `correct` blank or ideas=N (1-10), points 0.",
+        scoring="Never scored: points are always 0.",
+        default_time=90, time_guidance="60-120 s",
+        default_points=0, fixed_points=0,
+        settings=(Setting("ideas", tuple(range(1, 11)), 3,
+                          "ideas each student can send"),),
+        example={
+            "question": "Lluvia de ideas: ¿qué fuentes de datos podríamos usar "
+                        "para estudiar el tráfico de la ciudad?",
+            "type": "brainstorm", "correct": "ideas=3",
+            "time_limit": "90", "points": "0",
+        },
+        example_answer=["sensores en semáforos"],
+    ),
+    QuestionType(
+        code="scale", label="Scale",
+        summary="Students rate from 1 to 5 (or 1 to 10); the projector shows "
+                "the distribution and the average. No right answer, no points.",
+        min_options=3, max_options=3,
+        correct_kind=CORRECT_SETTINGS,
+        correct_rule="Optional: max=5 or max=10 (blank = 5). The three options "
+                     "are the labels: option_1 at 1, option_2 in the middle, "
+                     "option_3 at the top of the scale.",
+        self_check="`scale`: exactly three labels (low, middle, high), `correct` blank, max=5 or max=10, points 0.",
+        scoring="Never scored: points are always 0.",
+        default_time=20, time_guidance="15-30 s",
+        default_points=0, fixed_points=0,
+        default_options=("Nada seguro", "Más o menos", "Muy seguro"),
+        settings=(Setting("max", (5, 10), 5, "top of the scale"),),
+        example={
+            "question": "¿Qué tan seguro te sientes interpretando un diagrama "
+                        "de caja?",
+            "type": "scale",
+            "option_1": "Nada seguro", "option_2": "Más o menos",
+            "option_3": "Muy seguro",
+            "correct": "max=5", "time_limit": "20", "points": "0",
+        },
+        example_answer=4,
+    ),
 ]}
 
 
@@ -406,6 +486,44 @@ def zones_error(cfg, need_aspect=True) -> Optional[str]:
     except (TypeError, ValueError):
         return "aspect must be a number."
     return None
+
+
+def parse_settings_cell(qtype: "QuestionType", raw: str) -> dict:
+    """`key=N | key=N` -> {key: N} with every setting of the type (defaults
+    filled in). Raises ValueError with a readable message."""
+    known = {st.name: st for st in qtype.settings}
+    out = {st.name: st.default for st in qtype.settings}
+    for token in (t.strip() for t in (raw or "").split("|")):
+        if not token:
+            continue
+        key, eq, val = token.partition("=")
+        key = key.strip().lower()
+        if not eq or key not in known:
+            names = ", ".join(f"{n}=" for n in known) or "nothing"
+            raise ValueError(f"'{token}' is not a setting of {qtype.code} (use {names}).")
+        try:
+            num = int(val.strip())
+        except ValueError:
+            raise ValueError(f"{key} must be a whole number.")
+        if num not in known[key].choices:
+            raise ValueError(f"{key} must be one of "
+                             f"{', '.join(map(str, known[key].choices))}.")
+        out[key] = num
+    return out
+
+
+def settings_error(qtype: "QuestionType", settings) -> Optional[str]:
+    if not isinstance(settings, dict):
+        return "settings are missing."
+    for st in qtype.settings:
+        if settings.get(st.name, st.default) not in st.choices:
+            return (f"{st.name} must be one of "
+                    f"{', '.join(map(str, st.choices))}.")
+    return None
+
+
+def encode_settings_cell(settings: dict) -> str:
+    return " | ".join(f"{k}={v}" for k, v in settings.items())
 
 
 def _fmt(v: float) -> str:
@@ -515,9 +633,10 @@ followed exactly.
    material: concepts, interpretation, applying a method, spotting common
    mistakes. Avoid trivia and questions answerable without the material.
 3. Unless the teacher says otherwise: write **10 questions**, mostly `mc`, with
-   some `tf`, `ms`, `order` and `short`, and at most one `poll` or `wordcloud`
-   as a warm-up. Use `pin` only when the teacher gives you an image you can
-   see. Follow any numbers, types, difficulty or topics the teacher asks
+   some `tf`, `ms`, `order` and `short`, and at most one opinion question
+   (`poll`, `wordcloud`, `open`, `brainstorm` or `scale`) as a warm-up or
+   closing reflection. Use `pin` only when the teacher gives you an image you
+   can see. Follow any numbers, types, difficulty or topics the teacher asks
    for instead.
 4. Write questions and options in **the same language as the material**
    (usually Spanish). Keep accents and ñ as normal characters.
@@ -788,6 +907,13 @@ def _parse_row(row, warn):
             raise _RowError("correct", raw_correct,
                             f"{qtype.code}: {e} {qtype.correct_rule}")
         correct_json = json.dumps(cfg)
+    elif kind == CORRECT_SETTINGS:
+        try:
+            settings = parse_settings_cell(qtype, raw_correct)
+        except ValueError as e:
+            raise _RowError("correct", raw_correct,
+                            f"{qtype.code}: {e} {qtype.correct_rule}")
+        correct_json = json.dumps(settings)
     else:
         if raw_correct:
             warn("correct", raw_correct,

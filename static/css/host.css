@@ -1233,3 +1233,163 @@ body.projector-mode::after { opacity: 0 !important; }
 
 body.projector-mode .accepted-chip { font-size: 30px; }
 body.projector-mode .text-answer-text { font-size: 30px; }
+
+/* ── Opinion reveals: card wall, brainstorm board, scale ──
+   They can hold many answers: they take the free height and scroll inside
+   instead of pushing the page. */
+.opinion-reveal,
+.scale-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: 100%;
+}
+.card-wall {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  align-content: start;
+  align-items: start;
+}
+.answer-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--violet);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 18px;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+.card-wall.dense .answer-card { font-size: 15px; padding: 9px 11px; }
+.answer-card.slide-up { animation: slide-up-tile 0.3s ease both; }
+
+.bs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bs-modes { display: flex; gap: 6px; flex-wrap: wrap; }
+.bs-mode.active { border-color: var(--lime); color: var(--lime); }
+.bs-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+.bs-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 90px;
+}
+.bs-board.manual .bs-group { border-style: dashed; }
+.bs-group-head { display: flex; align-items: center; gap: 8px; }
+.bs-group-name {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 20px;
+  text-transform: uppercase;
+  color: var(--lime);
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+input.bs-group-name { border-bottom: 1px dashed var(--border); }
+.bs-group-count {
+  font-family: 'Syne Mono', monospace;
+  font-size: 15px;
+  color: var(--text-muted);
+}
+.bs-group-del {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0 7px;
+}
+.bs-card {
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 16px;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+}
+.bs-card.slide-up { animation: slide-up-tile 0.3s ease both; }
+.bs-board.manual .bs-card { cursor: grab; touch-action: none; user-select: none; }
+.bs-card.dragging { opacity: 0.35; }
+.bs-ghost {
+  position: fixed;
+  z-index: 9998;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transform: rotate(-2deg);
+}
+
+.scale-hist {
+  flex: 1 1 auto;
+  min-height: 140px;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.scale-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  text-align: center;
+  gap: 6px;
+}
+.scale-bar {
+  display: block;
+  background: var(--violet);
+  border-radius: 6px 6px 0 0;
+  min-height: 2px;
+  transition: height 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.scale-hist.waiting .scale-bar { background: var(--surface-2); }
+.scale-count { font-family: 'Syne Mono', monospace; font-size: 22px; }
+.scale-count small { font-size: 13px; color: var(--text-muted); }
+.scale-value {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 24px;
+  border-top: 2px solid var(--border);
+  padding-top: 4px;
+}
+.scale-avg { color: var(--lime); }
+.scale-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 16px;
+  color: var(--text-muted);
+}
+.scale-labels .scale-label.mid { text-align: center; }
+.scale-labels .scale-label.high { text-align: right; }
+.scale-labels .scale-label { flex: 1; }
+
+body.projector-mode .answer-card { font-size: 24px; }
+body.projector-mode .bs-card { font-size: 22px; }
+body.projector-mode .bs-group-name { font-size: 26px; }
+body.projector-mode .scale-labels { font-size: 22px; }
