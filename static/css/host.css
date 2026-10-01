@@ -276,8 +276,12 @@
 }
 
 .q-image {
-  max-height: 200px;
-  max-width: 400px;
+  /* Viewport-relative so it stays readable when projected but can't push
+     the answer tiles off screen */
+  max-height: 32vh;
+  max-width: min(100%, 60vw);
+  width: auto;
+  height: auto;
   object-fit: contain;
   border-radius: 8px;
   margin-bottom: 20px;

@@ -232,9 +232,13 @@ html, body {
 
 /* Fix 7: Image constrained */
 .player-q-image {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  height: auto;
   max-height: 22vh;
   object-fit: contain;
+  cursor: zoom-in;
   border-radius: 8px;
   margin-bottom: 10px;
   border: 1px solid var(--border);
@@ -977,3 +981,34 @@ html, body {
 .review-mark.ok      { color: var(--answer-d); }
 .review-mark.bad     { color: var(--answer-a); }
 .review-mark.neutral { color: var(--text-muted); }
+
+/* ── Full-screen question image ── */
+.img-lightbox {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.92);
+  align-items: center;
+  justify-content: center;
+  touch-action: pinch-zoom;
+}
+.img-lightbox.show { display: flex; }
+.img-lightbox img {
+  max-width: 100vw;
+  max-height: 100vh;
+  object-fit: contain;
+}
+.img-lightbox-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+}

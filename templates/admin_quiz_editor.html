@@ -193,7 +193,8 @@
       <p>JPG, PNG, GIF, WebP — max 10 MB</p>
       <input type="file" id="img-file-input" accept="image/*" style="display:none" onchange="handleImgUpload(this)">
     </div>
-    <img id="img-preview" class="img-preview" alt="Preview">
+    <img id="img-preview" class="img-preview" alt="Preview" onerror="onPreviewError()" onload="onPreviewLoad()">
+    <div id="img-warning" class="img-warning">⚠ This image can't be loaded (file missing?). Upload a new one or paste a URL.</div>
     <div class="form-divider">or paste URL</div>
     <input type="url" id="img-url-input" placeholder="https://example.com/image.png"
            oninput="onImageUrlInput(this.value)">
@@ -348,6 +349,7 @@ function renderQuestions() {
       '<span class="q-num">' + String(i+1).padStart(2,'0') + '</span>' +
       '<span class="q-text">' + escapeHtml(q.text) + '</span>' +
       '<div class="q-badges">' +
+        '<span class="badge badge-warn" style="display:none" title="Image missing: upload a new one">⚠ img</span>' +
         '<span class="badge">' + typeLabel + '</span>' +
         '<span class="badge">' + tl + 's</span>' +
         '<span class="badge pts">' + pts + 'pt</span>' +
@@ -358,6 +360,7 @@ function renderQuestions() {
       '</div>';
 
     list.appendChild(item);
+    if (q.image_url) checkQuestionImage(q.image_url, item.querySelector('.badge-warn'));
   });
 }
 
@@ -634,6 +637,7 @@ function openForm(q, idx) {
   } else {
     preview.style.display = 'none';
     preview.src = '';
+    document.getElementById('img-warning').style.display = 'none';
   }
 }
 
@@ -778,7 +782,34 @@ function uploadImage(file) {
     .catch(function() { showToast('Upload failed', 'error'); });
 }
 
+function onPreviewError() {
+  var preview = document.getElementById('img-preview');
+  if (!preview.getAttribute('src')) return;   // cleared on purpose, not a failure
+  preview.style.display = 'none';
+  document.getElementById('img-warning').style.display = 'block';
+}
+
+function onPreviewLoad() {
+  document.getElementById('img-warning').style.display = 'none';
+}
+
+// Question-list warning: probe each image once and remember the result.
+var imgStatus = {};   // url -> 'ok' | 'broken'
+
+function checkQuestionImage(url, badgeEl) {
+  if (imgStatus[url] === 'broken') { badgeEl.style.display = ''; return; }
+  if (imgStatus[url] === 'ok') return;
+  var probe = new Image();
+  probe.onload = function() { imgStatus[url] = 'ok'; };
+  probe.onerror = function() {
+    imgStatus[url] = 'broken';
+    badgeEl.style.display = '';
+  };
+  probe.src = url;
+}
+
 function onImageUrlInput(url) {
+  document.getElementById('img-warning').style.display = 'none';
   var preview = document.getElementById('img-preview');
   if (url) { preview.src = url; preview.style.display = 'block'; }
   else { preview.style.display = 'none'; preview.src = ''; }

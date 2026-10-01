@@ -359,6 +359,9 @@
     // Question text + image
     document.getElementById('q-text').textContent = msg.text;
     var qImg = document.getElementById('q-image');
+    // A dead image URL (e.g. a lost /uploads/ file) hides itself instead of
+    // showing a broken-image icon on the projector.
+    qImg.onerror = function () { qImg.style.display = 'none'; };
     if (msg.image_url) {
       qImg.src = msg.image_url;
       qImg.style.display = 'block';

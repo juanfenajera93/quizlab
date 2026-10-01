@@ -292,6 +292,15 @@
   white-space: nowrap;
 }
 
+.badge-warn { color: #b45309; border-color: #b45309; }
+
+.img-warning {
+  display: none;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b45309;
+}
+
 .badge.pts { color: var(--lime); border-color: var(--lime); }
 
 .q-actions { display: flex; gap: 6px; }

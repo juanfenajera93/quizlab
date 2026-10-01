@@ -96,7 +96,7 @@ The sky is blue,True,False,,,A,10,200,
 5. Set the `ADMIN_PASSWORD` environment variable in the Render dashboard (or let it auto-generate one and copy it from the logs).
 6. Click **Deploy**.
 
-The `render.yaml` includes a 1 GB persistent disk mounted at `/data` for the SQLite database and uploaded images. Make sure the disk is attached before the first deploy.
+Question images are stored in a public Supabase Storage bucket named `question-images`. Set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the Render environment (server-side only). Without them, uploads fall back to the local `uploads/` folder, which does **not** persist on Render.
 
 > **Note:** After deploy, find your auto-generated `ADMIN_PASSWORD` in **Environment → Secret Files** or the deploy logs.
 

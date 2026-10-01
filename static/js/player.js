@@ -353,6 +353,8 @@
 
     document.getElementById('player-q-text').textContent = msg.text;
     var img = document.getElementById('player-q-image');
+    img.onerror = function () { img.style.display = 'none'; };
+    img.onclick = function () { openImageLightbox(img.src); };
     if (msg.image_url) {
       img.src = msg.image_url;
       img.style.display = 'block';
@@ -1282,3 +1284,18 @@
   });
 
 })();
+
+
+// ── Question image: tap to view full-screen (pinch to zoom stays enabled) ──
+function openImageLightbox(src) {
+  var box = document.getElementById('img-lightbox');
+  var big = document.getElementById('img-lightbox-img');
+  if (!box || !big || !src) return;
+  big.src = src;
+  box.classList.add('show');
+}
+
+function closeImageLightbox() {
+  var box = document.getElementById('img-lightbox');
+  if (box) box.classList.remove('show');
+}

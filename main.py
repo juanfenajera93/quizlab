@@ -4,11 +4,14 @@ import io
 import json
 import logging
 import os
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 import qrcode
+from PIL import Image, UnidentifiedImageError
 from dotenv import load_dotenv
 from fastapi import (
     Depends,
@@ -78,11 +81,11 @@ templates = Jinja2Templates(directory="templates")
 @app.on_event("startup")
 async def on_startup():
     create_db_and_tables()
-    if _is_postgres:
+    if not _supabase_enabled():
         logger.warning(
-            "QuizLab is running in PostgreSQL mode. "
-            "Image uploads are saved to the local filesystem and will NOT persist "
-            "between Render deploys. Migrate uploads to Supabase Storage for persistence."
+            "SUPABASE_URL / SUPABASE_SERVICE_KEY not set: image uploads are saved to "
+            "the local uploads/ folder, which does NOT persist on Render. "
+            "Set both variables to store images in Supabase Storage."
         )
     # A restart (Render free-tier idle spin-down, a deploy, a crash) would
     # otherwise wipe every in-progress room. Restore whatever was still live
@@ -983,22 +986,83 @@ async def api_assignment_submit(code: str, request: Request,
 
 
 # ─── Image upload ─────────────────────────────────────────────────────────────
-# TODO: migrate uploads to Supabase Storage for persistence in production
+# Files go to a public Supabase Storage bucket when SUPABASE_URL and
+# SUPABASE_SERVICE_KEY are set (server-side only, never sent to the browser);
+# otherwise they fall back to the local uploads/ folder for development.
 
-ALLOWED_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+SUPABASE_BUCKET = "question-images"
+
+# Pillow format name -> (MIME type, file extension)
+_IMAGE_FORMATS = {
+    "JPEG": ("image/jpeg", "jpg"),
+    "PNG": ("image/png", "png"),
+    "GIF": ("image/gif", "gif"),
+    "WEBP": ("image/webp", "webp"),
+}
+
+
+def _supabase_enabled() -> bool:
+    return bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY"))
+
+
+def _detect_image(content: bytes):
+    """Return (mime, ext) from the actual bytes, or None if the content is not
+    a decodable jpeg/png/gif/webp. The declared content type and the original
+    filename are never trusted."""
+    try:
+        with Image.open(io.BytesIO(content)) as img:
+            fmt = img.format
+            img.verify()
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError,
+            Image.DecompressionBombError):
+        return None
+    return _IMAGE_FORMATS.get(fmt)
+
+
+def _upload_to_supabase(filename: str, content: bytes, mime: str) -> str:
+    base = os.environ["SUPABASE_URL"].rstrip("/")
+    key = os.environ["SUPABASE_SERVICE_KEY"]
+    req = urllib.request.Request(
+        f"{base}/storage/v1/object/{SUPABASE_BUCKET}/{filename}",
+        data=content,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {key}",
+            "apikey": key,
+            "Content-Type": mime,
+            "Cache-Control": "max-age=31536000",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=30):
+        pass
+    return f"{base}/storage/v1/object/public/{SUPABASE_BUCKET}/{filename}"
 
 
 @app.post("/admin/upload-image")
 async def upload_image(request: Request, file: UploadFile = File(...)):
     if not request.session.get("admin"):
         raise HTTPException(status_code=401)
-    if file.content_type not in ALLOWED_TYPES:
-        return JSONResponse({"error": "Unsupported file type"}, status_code=400)
-    content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
+    content = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(content) > MAX_IMAGE_BYTES:
         return JSONResponse({"error": "File too large (max 10 MB)"}, status_code=400)
-    ext = (file.filename or "img").rsplit(".", 1)[-1].lower()
+    detected = _detect_image(content)
+    if not detected:
+        return JSONResponse(
+            {"error": "Unsupported or corrupt image (use JPG, PNG, GIF or WebP)"},
+            status_code=400)
+    mime, ext = detected
     filename = f"{uuid.uuid4()}.{ext}"
+
+    if _supabase_enabled():
+        try:
+            url = await asyncio.to_thread(_upload_to_supabase, filename, content, mime)
+        except (urllib.error.URLError, OSError) as exc:
+            logger.error("Supabase upload failed: %s", exc)
+            return JSONResponse({"error": "Image storage unavailable, try again"},
+                                status_code=502)
+        return JSONResponse({"url": url})
+
     (UPLOAD_DIR / filename).write_bytes(content)
     return JSONResponse({"url": f"/uploads/{filename}"})
 

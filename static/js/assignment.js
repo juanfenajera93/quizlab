@@ -109,6 +109,7 @@
       t('question', 'Pregunta') + ' ' + (current + 1) + ' / ' + questions.length;
     $('hw-q-text').textContent = q.text;
     var img = $('hw-q-image');
+    img.onerror = function () { img.style.display = 'none'; };
     if (q.image_url) { img.src = q.image_url; img.style.display = ''; }
     else { img.style.display = 'none'; }
 
