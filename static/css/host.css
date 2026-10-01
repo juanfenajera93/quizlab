@@ -181,7 +181,51 @@
 
 .q-progress span { color: var(--text); }
 
-/* ── Timer ring ── */
+/* ── Timer ring + live points counter ── */
+.timer-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.points-live {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+  min-width: 96px;
+}
+
+.points-live.hidden { display: none; }
+
+.points-live-value {
+  font-family: 'Syne Mono', monospace;
+  font-size: 34px;
+  color: var(--lime);
+  font-variant-numeric: tabular-nums;
+}
+
+.points-live-unit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.points-live-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.points-live-note:empty { display: none; }
+
+[data-theme="light"] .points-live-value { color: var(--text); }
+
 .timer-container {
   position: relative;
   display: flex;

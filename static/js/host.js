@@ -14,6 +14,9 @@
   var timeLeft = 0;
   var revealSent = false;
   var inReadPhase = false;
+  var pointsClock = null;      // live points counter (scoring.js)
+  var pointsInterval = null;
+  var questionEndsAt = null;   // performance.now() when the answer phase ends (server reference)
   var answerCounts = [];
   // Live "answered / connected" counter. The server attaches `answered` and
   // `connected` to every host message that can move either number.
@@ -399,11 +402,58 @@
     // Reset timer display
     updateTimerDisplay(msg.time_limit, msg.time_limit);
 
+    startPointsCounter(msg);
+
     var readTime = msg.read_time || 0;
     if (readTime > 0) {
       startReadPhase(readTime, msg.time_limit);
     } else {
       enterAnswerPhase(msg.time_limit);
+    }
+  }
+
+  // ── Live points counter ────────────────────────────────────────
+  // Same formula and time reference as the server (see scoring.js): base
+  // points through the read phase, then down to the 50% floor in speed mode;
+  // a fixed value in accuracy mode. Hidden for poll / wordcloud / 0 points.
+  function startPointsCounter(q) {
+    stopPointsCounter();
+    // Countdown ring end, same server reference as the counter (an old
+    // server without answer_starts_in falls back to the local timer).
+    questionEndsAt = typeof q.answer_starts_in === 'number' && q.full_time_limit
+      ? performance.now() + (q.answer_starts_in + q.full_time_limit) * 1000 : null;
+    var box = document.getElementById('points-live');
+    if (!box) return;
+    if (!window.QLScore || !QLScore.showsCounter(q)) {
+      box.classList.add('hidden');
+      return;
+    }
+    pointsClock = new QLScore.Clock(q);
+    var note = document.getElementById('points-live-note');
+    var partial = QLScore.hasPartialCredit(q);
+    var fixed = pointsClock.mode === 'accuracy';
+    var floorPts = QLScore.speedPoints(pointsClock.base, 1, 1, 'speed');
+    box.classList.remove('hidden');
+    box.classList.toggle('fixed', fixed);
+
+    function render() {
+      var pts = pointsClock.points();
+      document.getElementById('points-live-value').textContent = pts;
+      var bits = [];
+      if (fixed) bits.push(t('pts_fixed_note'));
+      else if (pts <= floorPts && pointsClock.elapsed() > 0) bits.push(t('pts_floor_note'));
+      if (partial) bits.push(t('pts_partial_note'));
+      if (note) note.textContent = bits.join(' · ');
+    }
+    render();
+    if (!fixed) pointsInterval = setInterval(render, 100);
+  }
+
+  function stopPointsCounter(hide) {
+    if (pointsInterval) { clearInterval(pointsInterval); pointsInterval = null; }
+    if (hide) {
+      var box = document.getElementById('points-live');
+      if (box) box.classList.add('hidden');
     }
   }
 
@@ -503,6 +553,7 @@
   // `instant` (rejoin repaint) skips the theater and paints final state.
   function onReveal(msg, instant) {
     clearTimer();
+    stopPointsCounter(true);
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     var timerC = document.getElementById('timer-container');
     if (timerC) timerC.classList.remove('urgent-ring');
@@ -619,6 +670,7 @@
   // the full list fades in after the champion is crowned.
   function onGameEnd(msg) {
     clearTimer();
+    stopPointsCounter(true);
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     revealTimeouts.forEach(clearTimeout);
     revealTimeouts = [];
@@ -688,10 +740,13 @@
   // ── Timer ──────────────────────────────────────────────────────
   function startTimer(limit) {
     timeLeft = limit;
+    var endsAt = questionEndsAt || (performance.now() + limit * 1000);
     updateTimerDisplay(timeLeft, limit);
 
     timerInterval = setInterval(function () {
-      timeLeft -= 0.1;
+      // Wall-clock based, not "-0.1 per tick": background tabs throttle
+      // intervals, which made the ring lag the server (and the points counter).
+      timeLeft = (endsAt - performance.now()) / 1000;
       if (timeLeft <= 0) {
         timeLeft = 0;
         updateTimerDisplay(0, limit);

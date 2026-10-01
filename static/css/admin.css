@@ -405,14 +405,20 @@
 
 .radio-btn input[type="radio"] { display: none; }
 
-.radio-btn:has(input:checked) {
+/* Quick-fill buttons (e.g. points): <button>s styled like the pills */
+button.radio-btn { background: transparent; color: inherit; }
+button.radio-btn:disabled { cursor: not-allowed; }
+
+.radio-btn:has(input:checked),
+.radio-btn.is-active {
   border-color: var(--lime);
   background: color-mix(in srgb, var(--lime) 12%, transparent);
   color: var(--lime);
 }
 
 /* Area 1: Light mode — selected pill needs dark bg for readability */
-[data-theme="light"] .radio-btn:has(input:checked) {
+[data-theme="light"] .radio-btn:has(input:checked),
+[data-theme="light"] .radio-btn.is-active {
   background: var(--text);
   color: var(--bg);
   border-color: var(--lime);

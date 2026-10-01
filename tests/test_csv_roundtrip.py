@@ -278,6 +278,47 @@ class EndToEnd(unittest.TestCase):
                                        exp["correct_json"], exp["time_limit"],
                                        exp["points"], exp["image_url"]))
 
+    def _save(self, payload):
+        req = urllib.request.Request(
+            self.base + "/admin/quiz/save", data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"})
+        return json.loads(self.opener.open(req).read())
+
+    def test_save_enforces_points_range(self):
+        q = {"text": "Q", "question_type": "mc", "options": ["a", "b"],
+             "correct_json": "0", "time_limit": 20, "points": spec.POINTS_MAX}
+        quiz_id = self._save({"name": "Points", "questions": [q]})["quiz_id"]
+
+        for bad in (spec.POINTS_MAX + 1, spec.POINTS_MIN - 1, 2.5, "abc"):
+            with self.subTest(points=bad):
+                with self.assertRaises(urllib.error.HTTPError) as cm:
+                    self._save({"name": "Points", "quiz_id": quiz_id,
+                                "questions": [dict(q, points=bad)]})
+                self.assertEqual(cm.exception.code, 400)
+                self.assertIn(str(spec.POINTS_MAX),
+                              json.loads(cm.exception.read())["error"])
+
+        # A rejected update must leave the saved quiz untouched
+        with sqlite3.connect(self.db_path) as db:
+            rows = db.execute("SELECT points FROM question WHERE quiz_id = ?",
+                              (quiz_id,)).fetchall()
+        self.assertEqual(rows, [(spec.POINTS_MAX,)])
+
+        # Wordcloud is always worth 0, whatever the client sends
+        wc = {"text": "W", "question_type": "wordcloud", "options": [],
+              "correct_json": "", "time_limit": 30, "points": 100}
+        quiz_id = self._save({"name": "WC", "questions": [wc]})["quiz_id"]
+        with sqlite3.connect(self.db_path) as db:
+            rows = db.execute("SELECT points FROM question WHERE quiz_id = ?",
+                              (quiz_id,)).fetchall()
+        self.assertEqual(rows, [(0,)])
+
+    def test_editor_uses_spec_point_limits(self):
+        html = self.opener.open(self.base + "/admin/quiz/new").read().decode()
+        self.assertIn(f'min="{spec.POINTS_MIN}" max="{spec.POINTS_MAX}"', html)
+        self.assertIn(f"POINTS_MIN = {spec.POINTS_MIN}, POINTS_MAX = {spec.POINTS_MAX}",
+                      html)
+
     def test_ai_prompt_download(self):
         resp = self.opener.open(self.base + "/admin/ai-prompt")
         self.assertIn("attachment; filename=quizlab_ai_prompt.md",

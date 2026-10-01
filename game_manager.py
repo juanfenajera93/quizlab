@@ -221,18 +221,61 @@ class GameSession:
                    if p.connected and qi in p.answers)
 
 
-def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
-                  base_points, scoring_mode="speed"):
-    """Returns (points_earned, is_correct)"""
-    min_pts = math.floor(base_points * 0.5)
+# ─── Scoring ─────────────────────────────────────────────────────────────────
+# static/js/scoring.js mirrors speed_points() and streak_bonus() for the live
+# points counter; keep the two in step. The server's numbers are always the
+# ones that count.
 
-    def speed_bonus(tt):
+SPEED_FLOOR = 0.5            # speed mode never drops below 50% of base points
+STREAK_TYPES = ("mc", "tf", "ms", "order")   # question types that move streaks
+
+
+def speed_points(base_points, time_limit, time_taken, scoring_mode="speed"):
+    """Points for a fully correct answer given `time_taken` seconds into the
+    answer phase (the read phase never counts)."""
+    if scoring_mode == "accuracy":
+        # Accuracy mode: full points for a correct answer, no time pressure
+        return base_points
+    min_pts = math.floor(base_points * SPEED_FLOOR)
+    time_remaining = max(0.0, time_limit - time_taken)
+    pts = math.floor(base_points * (time_remaining / time_limit)) if time_limit > 0 else 0
+    return max(min_pts, pts)
+
+
+def streak_bonus(base_points, streak_after):
+    """Bonus for a correct answer that brings the streak to `streak_after`:
+    +10% of base points per consecutive correct, capped at +50%."""
+    if streak_after < 2:
+        return 0
+    return math.floor(base_points * 0.1 * min(streak_after - 1, 5))
+
+
+def _score_details(q_type, correct_json, player_answer, time_taken, time_limit,
+                   base_points, scoring_mode="speed") -> dict:
+    """Score one answer and say how the points were reached.
+
+    kind: "speed"   fully correct in speed mode (speed_factor applied)
+          "full"    fully correct with no time factor (accuracy mode, poll,
+                    wordcloud)
+          "partial" ms/order partial credit, no time factor (hits of parts)
+          "wrong"   0 points
+    """
+    def full():
+        pts = speed_points(base_points, time_limit, time_taken, scoring_mode)
         if scoring_mode == "accuracy":
-            # Accuracy mode: full points for a correct answer, no time pressure
-            return base_points
-        time_remaining = max(0.0, time_limit - tt)
-        pts = math.floor(base_points * (time_remaining / time_limit)) if time_limit > 0 else 0
-        return max(min_pts, pts)
+            return {"points": pts, "correct": True, "kind": "full"}
+        remaining = max(0.0, time_limit - time_taken)
+        factor = remaining / time_limit if time_limit > 0 else 0.0
+        return {"points": pts, "correct": True, "kind": "speed",
+                "speed_factor": round(max(SPEED_FLOOR, factor), 3),
+                "time_taken": round(time_taken, 2)}
+
+    def partial(hits, parts):
+        return {"points": math.floor(base_points * (hits / parts)),
+                "correct": False, "kind": "partial",
+                "hits": hits, "parts": parts}
+
+    wrong = {"points": 0, "correct": False, "kind": "wrong"}
 
     if q_type in ("mc", "tf"):
         try:
@@ -240,55 +283,78 @@ def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
         except (ValueError, TypeError):
             correct_idx = 0
         if player_answer == correct_idx:
-            return speed_bonus(time_taken), True
-        return 0, False
+            return full()
+        return wrong
 
     elif q_type == "ms":
         try:
             correct_indices = set(json.loads(correct_json))
         except Exception:
-            return 0, False
+            return wrong
         if not isinstance(player_answer, list):
-            return 0, False
+            return wrong
         selected = set(player_answer)
         # Any wrong selection → zero
         all_indices = set(range(100))
         if selected & (all_indices - correct_indices):
-            return 0, False
+            return wrong
         overlap = len(selected & correct_indices)
         if overlap == len(correct_indices):
-            return speed_bonus(time_taken), True
+            return full()
         elif overlap > 0:
-            pts = math.floor(base_points * (overlap / len(correct_indices)))
-            return pts, False
-        return 0, False
+            return partial(overlap, len(correct_indices))
+        return wrong
 
     elif q_type == "poll":
         if player_answer is not None and player_answer != -1:
-            return base_points, True
-        return 0, False
+            return {"points": base_points, "correct": True, "kind": "full"}
+        return wrong
 
     elif q_type == "order":
         try:
             correct_order = json.loads(correct_json) if correct_json else []
         except Exception:
-            return 0, False
+            return wrong
         if not isinstance(player_answer, list) or not correct_order:
-            return 0, False
+            return wrong
         if len(player_answer) != len(correct_order):
-            return 0, False
+            return wrong
         matching = sum(1 for a, b in zip(player_answer, correct_order) if a == b)
         if matching == len(correct_order):
-            return speed_bonus(time_taken), True
-        pts = math.floor(base_points * (matching / len(correct_order)))
-        return pts, False
+            return full()
+        return partial(matching, len(correct_order))
 
     elif q_type == "wordcloud":
         if player_answer and isinstance(player_answer, str) and player_answer.strip():
-            return base_points, True
-        return 0, False
+            return {"points": base_points, "correct": True, "kind": "full"}
+        return wrong
 
-    return 0, False
+    return wrong
+
+
+def _score_answer(q_type, correct_json, player_answer, time_taken, time_limit,
+                  base_points, scoring_mode="speed"):
+    """Returns (points_earned, is_correct)"""
+    d = _score_details(q_type, correct_json, player_answer, time_taken,
+                       time_limit, base_points, scoring_mode)
+    return d["points"], d["correct"]
+
+
+def _breakdown(details: dict, base_points: int, bonus: int, streak: int,
+               total: int) -> dict:
+    """How a question's points were reached, for the phone's reveal screen."""
+    out = {
+        "base": base_points,
+        "kind": details["kind"],
+        "question_points": details["points"],
+        "streak_bonus": bonus,
+        "streak": streak,
+        "total": total,
+    }
+    for key in ("speed_factor", "time_taken", "hits", "parts"):
+        if key in details:
+            out[key] = details[key]
+    return out
 
 
 def build_quiz_data(quiz: Quiz, questions: List[Question]) -> dict:
@@ -793,6 +859,7 @@ class GameManager:
             session.answer_counts[answer_index] += 1
 
         self.persist_live_player(room_code, player)
+        await self._send_answer_ack(session, player)
         await self._send_host(session, {
             "type": "answer_counts",
             "counts": session.answer_counts,
@@ -864,6 +931,7 @@ class GameManager:
             player.answer_times[question_id] = 0.0
 
         self.persist_live_player(room_code, player)
+        await self._send_answer_ack(session, player)
         # Bars don't change on confirm (they track live selections), but the
         # "answered" counter does.
         await self._send_host(session, {
@@ -909,6 +977,9 @@ class GameManager:
             counts[0] = submitted
         session.answer_counts = counts
 
+        # Every ordering update re-times the answer, so the last ack (the one
+        # for the confirming update) is the value that will count.
+        await self._send_answer_ack(session, player)
         await self._send_host(session, {
             "type": "answer_counts",
             "counts": session.answer_counts,
@@ -950,7 +1021,7 @@ class GameManager:
 
         # Score all players, recording the outcome so rejoins and the
         # end-of-game review reuse it instead of re-deriving points
-        streak_counts = q_type in ("mc", "tf", "ms", "order")
+        streak_counts = q_type in STREAK_TYPES
         for player in session.players.values():
             answer = player.answers.get(qi)
             if answer is None:
@@ -962,25 +1033,30 @@ class GameManager:
                 player.question_results[qi] = {
                     "points": 0, "correct": False, "answered": False,
                     "streak_after": player.streak,
+                    "breakdown": _breakdown({"kind": "none", "points": 0},
+                                            base_points, 0, player.streak, 0),
                 }
                 continue
             time_taken = player.answer_times.get(qi, time_limit)
-            pts, is_correct = _score_answer(
+            details = _score_details(
                 q_type, scoring_correct_json, answer, time_taken, time_limit,
                 base_points, session.scoring_mode)
+            pts, is_correct = details["points"], details["correct"]
+            bonus = 0
             if streak_counts:
                 if is_correct:
                     player.streak += 1
-                    if session.streak_bonus_enabled and player.streak >= 2:
-                        # +10% of base points per consecutive correct, capped at +50%
-                        pts += math.floor(
-                            base_points * 0.1 * min(player.streak - 1, 5))
+                    if session.streak_bonus_enabled:
+                        bonus = streak_bonus(base_points, player.streak)
+                        pts += bonus
                 else:
                     player.streak = 0
             player.score += pts
             player.question_results[qi] = {
                 "points": pts, "correct": is_correct, "answered": True,
                 "streak_after": player.streak,
+                "breakdown": _breakdown(details, base_points, bonus,
+                                        player.streak, pts),
             }
 
         leaderboard = session.get_leaderboard()
@@ -1206,12 +1282,16 @@ class GameManager:
         stored = player.question_results.get(qi)
         if stored is not None:
             pts_earned, is_correct = stored["points"], stored["correct"]
+            breakdown = stored.get("breakdown")
         else:
             time_taken = player.answer_times.get(qi, time_limit)
-            pts_earned, is_correct = _score_answer(
+            details = _score_details(
                 q_type, scoring_correct_json, answer if answer is not None else -1,
                 time_taken, time_limit, base_points, session.scoring_mode
             )
+            pts_earned, is_correct = details["points"], details["correct"]
+            breakdown = _breakdown(details, base_points, 0, player.streak,
+                                   pts_earned)
 
         rank = next(
             (e["rank"] for e in leaderboard if e["player_id"] == player.player_id),
@@ -1232,6 +1312,8 @@ class GameManager:
             "leaderboard": leaderboard[:5],
             "no_points": base_points == 0 or q_type == "wordcloud",
             "streak": player.streak,
+            "scoring_mode": session.scoring_mode,
+            "breakdown": breakdown,
         }
         if q_type == "wordcloud":
             reveal_msg["your_text"] = player.answers.get(qi, "")
@@ -1330,7 +1412,46 @@ class GameManager:
             "number": qi + 1,
             "total": len(session.questions),
             "question_type": q_type,
+            # Live points counter (static/js/scoring.js). answer_starts_in is
+            # relative to this message, so the client anchors to the server's
+            # answer-phase start without comparing clocks; full_time_limit
+            # survives the rejoin path overwriting time_limit with what's left.
+            "points": q.get("points", 100),
+            "scoring_mode": session.scoring_mode,
+            "streak_bonus": session.streak_bonus_enabled,
+            "full_time_limit": q.get("time_limit", 20),
+            "answer_starts_in": (
+                round(session.answer_phase_start_time - time.time(), 3)
+                if session.answer_phase_start_time else 0.0),
         }
+
+    def _answer_ack(self, session: GameSession, player: Player) -> Optional[dict]:
+        """What this player's answer is worth if fully correct, from the time
+        the server recorded for it. Sent back on every answer so the phone's
+        frozen value is the server's number, not its own estimate."""
+        q = session.current_question or {}
+        qi = session.current_question_index
+        q_type = q.get("question_type", "mc")
+        base_points = q.get("points", 100)
+        if q_type not in STREAK_TYPES or not base_points:
+            return None
+        time_taken = player.answer_times.get(qi)
+        if time_taken is None:
+            return None
+        return {
+            "type": "answer_ack",
+            "question_id": qi,
+            "time_taken": round(time_taken, 2),
+            "max_points": speed_points(base_points, q.get("time_limit", 20),
+                                       time_taken, session.scoring_mode),
+            "streak_bonus": (streak_bonus(base_points, player.streak + 1)
+                             if session.streak_bonus_enabled else 0),
+        }
+
+    async def _send_answer_ack(self, session: GameSession, player: Player):
+        ack = self._answer_ack(session, player)
+        if ack:
+            await self._send_to_player(player, ack)
 
     async def rejoin_player(self, room_code: str, player_id: str, nickname: str,
                             websocket: WebSocket) -> dict:
@@ -1377,10 +1498,14 @@ class GameManager:
             payload = self._question_payload(session)
             if payload:
                 result.update(self._phase_info(session))
+                already = qi in player.confirmed or qi in player.answers
                 result.update({
                     "question": payload,
-                    "already_answered": qi in player.confirmed or qi in player.answers,
+                    "already_answered": already,
                 })
+                ack = self._answer_ack(session, player) if already else None
+                if ack:
+                    result["answer_ack"] = ack
         elif session.state == "reveal":
             result["reveal"] = self._build_player_reveal(session, player)
 

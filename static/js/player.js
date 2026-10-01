@@ -24,6 +24,12 @@
   var rosterMode = false;
   var myTeamName = null;
   var wasInRoom = false;      // joined/rejoined at least once on this page load
+  var myStreak = 0;           // consecutive fully-correct answers (from server)
+  var currentQuestion = null; // last question payload (live points counter)
+  var pointsClock = null;     // QLScore.Clock while the counter is live
+  var pointsInterval = null;
+  var questionEndsAt = null;  // performance.now() when the answer phase ends (server reference)
+  var pointsFrozen = false;
 
   // ── Views ──────────────────────────────────────────────────────
   function _hideAllViews() {
@@ -245,6 +251,7 @@
       case 'state_sync':    onStateSync(msg);     break;
       case 'game_ended':    onGameEnded(msg);       break;
       case 'rejoined':      onRejoined(msg);        break;
+      case 'answer_ack':    onAnswerAck(msg);       break;
       case 'room_info':     onRoomInfo(msg);        break;
       case 'team_update':   onTeamUpdate(msg);      break;
       case 'kicked':        onKicked();             break;
@@ -283,6 +290,7 @@
   function onKicked() {
     clearIdentity();
     clearTimer();
+    stopPointsCounter();
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     var emojiBar = document.getElementById('emoji-bar');
     if (emojiBar) emojiBar.style.display = 'none';
@@ -367,6 +375,8 @@
     // Remove any lingering confirm button
     var oldConfirm = document.getElementById('ms-confirm-btn');
     if (oldConfirm) oldConfirm.remove();
+
+    startPointsCounter(msg);
 
     var readTime = msg.read_time || 0;
     if (readTime > 0) {
@@ -641,6 +651,7 @@
     if (msConfirmed || msSelections.length === 0) return;
     msConfirmed = true;
     answered = true;
+    freezePoints();
 
     send({
       type: 'confirm',
@@ -690,6 +701,7 @@
   function confirmOrderAnswer() {
     if (answered) return;
     answered = true;
+    freezePoints();
     sendOrderUpdate();
     document.querySelectorAll('.order-arrow-btn').forEach(function (b) { b.disabled = true; });
     var confirmBtn = document.getElementById('ms-confirm-btn');
@@ -720,7 +732,9 @@
   // ── Reveal screen ─────────────────────────────────────────────
   function onReveal(msg) {
     clearTimer();
+    stopPointsCounter();
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
+    if (typeof msg.streak === 'number') myStreak = msg.streak;
 
     var qType = msg.question_type || 'mc';
     var isCorrect = msg.is_correct || false;
@@ -817,6 +831,8 @@
       }
     }
 
+    renderBreakdown(msg);
+
     if (totalEl) totalEl.textContent = t('total') + ': ' + totalScore + ' pts';
     if (rankEl) {
       rankEl.innerHTML = t('rank_of')
@@ -844,6 +860,7 @@
 
   function onGameEnd(msg) {
     clearTimer();
+    stopPointsCounter();
     clearIdentity();  // the room is over: next visit goes to the join form
     var emojiBar = document.getElementById('emoji-bar');
     if (emojiBar) emojiBar.style.display = 'none';
@@ -983,6 +1000,7 @@
       if (wnick) wnick.textContent = joinedNickname;
     }
     if (msg.team !== undefined) updateTeamBadge(msg.team, msg.team_name);
+    if (typeof msg.streak === 'number') myStreak = msg.streak;
     var state = msg.state;
     var emojiBar = document.getElementById('emoji-bar');
     if (emojiBar) emojiBar.style.display = (state === 'ended') ? 'none' : 'flex';
@@ -1005,6 +1023,8 @@
         var confirmBtn = document.getElementById('ms-confirm-btn');
         if (confirmBtn) confirmBtn.style.display = 'none';
         document.getElementById('answered-overlay').classList.add('show');
+        freezePoints();
+        if (msg.answer_ack) onAnswerAck(msg.answer_ack);
       }
     } else if (state === 'question') {
       // Fallback if the server sent no question payload
@@ -1022,6 +1042,7 @@
 
   function onGameEnded(msg) {
     clearTimer();
+    stopPointsCounter();
     clearIdentity();
     if (readTimerTimeout) { clearTimeout(readTimerTimeout); readTimerTimeout = null; }
     var emojiBar = document.getElementById('emoji-bar');
@@ -1035,6 +1056,7 @@
   function submitAnswer(idx) {
     if (answered) return;
     answered = true;
+    freezePoints();
 
     send({
       type: 'answer',
@@ -1054,13 +1076,134 @@
     // Timer keeps running — clearTimer() only called in onReveal()
   }
 
+  // ── Live points counter ───────────────────────────────────────
+  // Shows what a fully correct answer is worth right now, using the same
+  // formula and time reference as the server (scoring.js). Freezes when the
+  // student answers; the server's answer_ack then replaces the local
+  // estimate with the value it actually recorded.
+  function startPointsCounter(q) {
+    stopPointsCounter();
+    // Countdown ring end, same server reference as the counter (an old
+    // server without answer_starts_in falls back to the local timer).
+    questionEndsAt = typeof q.answer_starts_in === 'number' && q.full_time_limit
+      ? performance.now() + (q.answer_starts_in + q.full_time_limit) * 1000 : null;
+    currentQuestion = q;
+    pointsClock = null;
+    pointsFrozen = false;
+    var box = document.getElementById('player-points-live');
+    var ap = document.getElementById('answered-points');
+    if (ap) { ap.style.display = 'none'; ap.innerHTML = ''; }
+    if (!box) return;
+    box.classList.remove('frozen');
+    if (!window.QLScore || !QLScore.showsCounter(q)) {
+      box.classList.add('hidden');
+      return;
+    }
+    pointsClock = new QLScore.Clock(q);
+    box.classList.remove('hidden');
+    renderLivePoints(pointsClock.points());
+    if (pointsClock.mode !== 'accuracy') {
+      pointsInterval = setInterval(function () {
+        renderLivePoints(pointsClock.points());
+      }, 100);
+    }
+  }
+
+  function stopPointsCounter() {
+    if (pointsInterval) { clearInterval(pointsInterval); pointsInterval = null; }
+  }
+
+  function renderLivePoints(pts) {
+    var el = document.getElementById('player-points-value');
+    if (el) el.textContent = pts;
+  }
+
+  // Lock in the local estimate right away; onAnswerAck corrects it.
+  function freezePoints() {
+    stopPointsCounter();
+    if (!pointsClock) return;
+    pointsFrozen = true;
+    var box = document.getElementById('player-points-live');
+    if (box) box.classList.add('frozen');
+    var bonus = currentQuestion && currentQuestion.streak_bonus
+      ? QLScore.streakBonus(pointsClock.base, myStreak + 1) : 0;
+    showIfCorrect(pointsClock.points(), bonus);
+  }
+
+  function onAnswerAck(msg) {
+    if (!pointsFrozen || msg.question_id !== currentQuestionId) return;
+    showIfCorrect(msg.max_points, msg.streak_bonus || 0);
+  }
+
+  function showIfCorrect(pts, bonus) {
+    renderLivePoints(pts);
+    var ap = document.getElementById('answered-points');
+    if (!ap || !currentQuestion) return;
+    var partial = QLScore.hasPartialCredit(currentQuestion);
+    var html = (partial ? t('if_all_correct') : t('if_correct')) +
+      ': <strong>' + pts + ' pts</strong>';
+    if (bonus > 0) html += ' + ' + bonus + ' ' + t('streak_bonus_short') + ' 🔥';
+    if (partial) {
+      html += '<span class="ap-note">' +
+        t('partial_rule').replace('{base}', pointsClock.base) + '</span>';
+    }
+    ap.innerHTML = html;
+    ap.style.display = '';
+  }
+
+  // How this question's points were reached (server numbers only).
+  function renderBreakdown(msg) {
+    var el = document.getElementById('score-breakdown');
+    if (!el) return;
+    var bd = msg.breakdown;
+    var qType = msg.question_type || 'mc';
+    if (!bd || msg.no_points || qType === 'wordcloud') {
+      el.style.display = 'none';
+      el.innerHTML = '';
+      return;
+    }
+    function row(label, val, cls) {
+      return '<div class="bd-row' + (cls ? ' ' + cls : '') + '"><span>' +
+        escapeHtml(label) + '</span><span class="bd-val">' + val + '</span></div>';
+    }
+    var html = row(t('bd_base'), bd.base);
+    var secs = typeof bd.time_taken === 'number' ? bd.time_taken.toFixed(1) : '—';
+    if (bd.kind === 'speed') {
+      var label = bd.speed_factor <= QLScore.SPEED_FLOOR
+        ? t('bd_speed_floor').replace('{s}', secs)
+        : t('bd_speed').replace('{pct}', Math.round(bd.speed_factor * 100))
+                       .replace('{s}', secs);
+      html += row(label, bd.question_points);
+    } else if (bd.kind === 'partial' && bd.hits > 0) {
+      html += row(t('bd_partial').replace('{hits}', bd.hits)
+                                 .replace('{parts}', bd.parts), bd.question_points);
+    } else if (bd.kind === 'full') {
+      html += row(qType === 'poll' ? t('bd_poll') : t('bd_accuracy'), bd.question_points);
+    } else if (bd.kind === 'none') {
+      html += row(t('bd_none'), 0);
+    } else {
+      html += row(t('bd_wrong'), 0);
+    }
+    if (bd.streak_bonus > 0) {
+      var pct = Math.min(bd.streak - 1, 5) * 10;
+      html += row(t('bd_streak').replace('{n}', bd.streak).replace('{pct}', pct),
+                  '+' + bd.streak_bonus);
+    }
+    html += row(t('bd_total'), bd.total, 'bd-total');
+    el.innerHTML = html;
+    el.style.display = '';
+  }
+
   // ── Timer ─────────────────────────────────────────────────────
   function startTimer(limit) {
     var timeLeft = limit;
+    var endsAt = questionEndsAt || (performance.now() + limit * 1000);
     updateTimerDisplay(timeLeft, limit);
 
     timerInterval = setInterval(function () {
-      timeLeft -= 0.1;
+      // Wall-clock based, not "-0.1 per tick": background tabs throttle
+      // intervals, which made the ring lag the server (and the points counter).
+      timeLeft = (endsAt - performance.now()) / 1000;
       if (timeLeft <= 0) {
         timeLeft = 0;
         clearInterval(timerInterval);
@@ -1080,6 +1223,7 @@
             if (wcConfirm) wcConfirm.style.display = 'none';
           } else if (currentQuestionType === 'order') {
             answered = true;
+            freezePoints();
             sendOrderUpdate();
             document.getElementById('answered-overlay').classList.add('show');
             document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
@@ -1095,6 +1239,8 @@
             submitAnswer(mcSelectedIdx);
           } else {
             // ms without confirm, or mc/tf/poll with no selection
+            if (currentQuestionType === 'ms' && msSelections.length > 0) freezePoints();
+            else stopPointsCounter();
             document.getElementById('answered-overlay').classList.add('show');
             document.querySelectorAll('.player-ans-btn').forEach(function (b) { b.disabled = true; });
             var confirmBtn = document.getElementById('ms-confirm-btn');

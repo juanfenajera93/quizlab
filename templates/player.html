@@ -80,6 +80,12 @@
     <div class="question-header">
       <span class="q-number-label" id="q-num-label">P1/1</span>
 
+      <!-- Live points counter (frozen once the student answers) -->
+      <div id="player-points-live" class="player-points-live hidden">
+        <span id="player-points-value" class="player-points-value">0</span>
+        <span class="player-points-unit">pts</span>
+      </div>
+
       <!-- Fix 2: timer ring (always present, hidden during read phase via JS) -->
       <svg class="player-timer-ring" viewBox="0 0 100 100">
         <circle class="ring-track" cx="50" cy="50" r="45"/>
@@ -110,6 +116,7 @@
         <span></span><span></span><span></span>
       </div>
       <p>Esperando a los demás...</p>
+      <div id="answered-points" class="answered-points" style="display:none"></div>
     </div>
   </div>
 
@@ -127,6 +134,7 @@
   <div id="reveal-result-label" class="reveal-label correct">¡Correcto!</div>
   <div id="score-popup" class="score-popup">+0 pts</div>
   <div id="streak-display" class="streak-display" style="display:none"></div>
+  <div id="score-breakdown" class="score-breakdown" style="display:none"></div>
   <div id="reveal-total-score" class="reveal-total-score">Total: 0 pts</div>
   <div id="rank-display" class="rank-display"></div>
   <div id="team-rank-display" class="team-rank-display" style="display:none"></div>
@@ -187,5 +195,6 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="/static/js/scoring.js"></script>
 <script src="/static/js/player.js"></script>
 {% endblock %}

@@ -72,14 +72,22 @@
       <span class="q-progress">Q <span id="q-num">0</span> / <span id="q-total">0</span></span>
 
       <!-- Fix 4: timer-container has id for JS visibility toggle -->
-      <div class="timer-container" id="timer-container">
-        <svg class="timer-ring" viewBox="0 0 100 100" width="72" height="72">
-          <circle class="ring-track" cx="50" cy="50" r="45"/>
-          <circle id="timer-ring-progress" class="ring-progress" cx="50" cy="50" r="45"
-                  stroke-dasharray="282.74" stroke-dashoffset="0"
-                  transform="rotate(-90 50 50)"/>
-          <text id="timer-number" class="ring-number" x="50" y="50">—</text>
-        </svg>
+      <div class="timer-group">
+        <div class="timer-container" id="timer-container">
+          <svg class="timer-ring" viewBox="0 0 100 100" width="72" height="72">
+            <circle class="ring-track" cx="50" cy="50" r="45"/>
+            <circle id="timer-ring-progress" class="ring-progress" cx="50" cy="50" r="45"
+                    stroke-dasharray="282.74" stroke-dashoffset="0"
+                    transform="rotate(-90 50 50)"/>
+            <text id="timer-number" class="ring-number" x="50" y="50">—</text>
+          </svg>
+        </div>
+        <!-- Live points counter: what a fully correct answer is worth right now -->
+        <div class="points-live hidden" id="points-live" aria-live="off">
+          <span class="points-live-value" id="points-live-value">0</span>
+          <span class="points-live-unit">pts</span>
+          <span class="points-live-note" id="points-live-note"></span>
+        </div>
       </div>
 
       <div style="display:flex;gap:8px;align-items:center">
@@ -176,5 +184,6 @@
 <script>
   window.QUIZ_ID = {{ quiz_id }};
 </script>
+<script src="/static/js/scoring.js"></script>
 <script src="/static/js/host.js"></script>
 {% endblock %}

@@ -166,8 +166,8 @@ def _rejoined_message(result: dict) -> dict:
         "question_index": result["question_index"],
     }
     for key in ("question", "phase", "read_time_remaining",
-                "answer_time_remaining", "already_answered", "reveal",
-                "team", "team_name", "streak", "player_list"):
+                "answer_time_remaining", "already_answered", "answer_ack",
+                "reveal", "team", "team_name", "streak", "player_list"):
         if key in result:
             msg[key] = result[key]
     return msg
@@ -263,8 +263,14 @@ async def new_quiz_page(request: Request):
         return RedirectResponse("/admin/login")
     return templates.TemplateResponse(
         "admin_quiz_editor.html",
-        {"request": request, "quiz": None, "questions_json": "[]", "read_time": 5},
+        {"request": request, "quiz": None, "questions_json": "[]", "read_time": 5,
+         **_points_limits()},
     )
+
+
+def _points_limits() -> dict:
+    return {"points_min": question_spec.POINTS_MIN,
+            "points_max": question_spec.POINTS_MAX}
 
 
 @app.get("/admin/quiz/{quiz_id}/edit", response_class=HTMLResponse)
@@ -297,8 +303,27 @@ async def edit_quiz_page(
     return templates.TemplateResponse(
         "admin_quiz_editor.html",
         {"request": request, "quiz": quiz, "questions_json": questions_json,
-         "read_time": quiz.read_time},
+         "read_time": quiz.read_time, **_points_limits()},
     )
+
+
+def _validate_points(raw):
+    """(points, None) if raw is a whole number within question_spec's limits,
+    else (None, error message)."""
+    lo, hi = question_spec.POINTS_MIN, question_spec.POINTS_MAX
+    msg = f"points must be a whole number from {lo} to {hi}."
+    if isinstance(raw, bool):
+        return None, msg
+    if isinstance(raw, float) and raw.is_integer():
+        raw = int(raw)
+    if isinstance(raw, str):
+        try:
+            raw = int(raw.strip())
+        except ValueError:
+            return None, msg
+    if not isinstance(raw, int) or not lo <= raw <= hi:
+        return None, msg
+    return raw, None
 
 
 @app.post("/admin/quiz/save")
@@ -322,6 +347,19 @@ async def save_quiz(request: Request, db: Session = Depends(get_session)):
     if scoring_mode not in ("speed", "accuracy"):
         scoring_mode = "speed"
     streak_bonus = bool(data.get("streak_bonus", False))
+
+    # Validate points before touching the DB: the update path deletes the old
+    # questions first, so a bad value must not leave the quiz half-saved.
+    points_list = []
+    for i, qd in enumerate(questions_data):
+        pts, err = _validate_points(qd.get("points", 100))
+        if err:
+            return JSONResponse({"error": f"Question {i + 1}: {err}"},
+                                status_code=400)
+        qtype = question_spec.QUESTION_TYPES.get(qd.get("question_type", "mc"))
+        if qtype and qtype.fixed_points is not None:
+            pts = qtype.fixed_points
+        points_list.append(pts)
 
     if quiz_id:
         quiz = db.get(Quiz, int(quiz_id))
@@ -351,7 +389,7 @@ async def save_quiz(request: Request, db: Session = Depends(get_session)):
             options_json=json.dumps(qd.get("options", [])),
             correct_json=str(qd.get("correct_json", "")),
             time_limit=int(qd.get("time_limit", 20)),
-            points=int(qd.get("points", 100)),
+            points=points_list[i],
             image_url=qd.get("image_url") or None,
         )
         db.add(q)
