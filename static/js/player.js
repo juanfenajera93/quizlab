@@ -252,6 +252,7 @@
       case 'game_ended':    onGameEnded(msg);       break;
       case 'rejoined':      onRejoined(msg);        break;
       case 'answer_ack':    onAnswerAck(msg);       break;
+      case 'answer_rejected': onAnswerRejected(msg); break;
       case 'room_info':     onRoomInfo(msg);        break;
       case 'team_update':   onTeamUpdate(msg);      break;
       case 'kicked':        onKicked();             break;
@@ -1130,6 +1131,26 @@
     var bonus = currentQuestion && currentQuestion.streak_bonus
       ? QLScore.streakBonus(pointsClock.base, myStreak + 1) : 0;
     showIfCorrect(pointsClock.points(), bonus);
+  }
+
+  // The server owns the clock: an answer that arrived after the deadline
+  // (or during the read phase) was not recorded. Say so instead of showing
+  // "if correct: N pts".
+  function onAnswerRejected(msg) {
+    if (msg.question_id !== currentQuestionId) return;
+    answered = true;
+    msConfirmed = true;
+    stopPointsCounter();
+    pointsFrozen = false;
+    document.querySelectorAll('.player-ans-btn, .order-arrow-btn').forEach(function (b) { b.disabled = true; });
+    var confirmBtn = document.getElementById('ms-confirm-btn');
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    var ap = document.getElementById('answered-points');
+    if (ap) {
+      ap.textContent = msg.reason === 'read_phase' ? t('answer_too_early') : t('answer_too_late');
+      ap.style.display = '';
+    }
+    document.getElementById('answered-overlay').classList.add('show');
   }
 
   function onAnswerAck(msg) {

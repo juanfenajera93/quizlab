@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import hmac
 import io
 import json
 import logging
@@ -37,7 +38,13 @@ from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
 import question_spec
-from database import create_db_and_tables, engine, get_session, _is_postgres
+from database import (
+    StartupDatabaseError,
+    create_db_and_tables,
+    engine,
+    get_session,
+    _is_postgres,
+)
 from game_manager import (
     TEAM_NAMES,
     build_quiz_data,
@@ -67,8 +74,35 @@ logger = logging.getLogger("quizlab")
 
 app = FastAPI(title="QuizLab")
 
-SECRET_KEY = os.getenv("SECRET_KEY", "quizlab-secret-change-me")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+
+def _auth_settings(is_postgres: bool, environ=os.environ):
+    """(ADMIN_PASSWORD, SECRET_KEY). In production (Postgres DATABASE_URL)
+    both must be set: a missing password used to fall back to a well-known
+    default, and a missing SECRET_KEY to a public one that lets anyone forge
+    the admin session cookie. Only local SQLite development gets fallbacks."""
+    password = environ.get("ADMIN_PASSWORD", "")
+    secret = environ.get("SECRET_KEY", "")
+    if is_postgres:
+        missing = [name for name, value in (("ADMIN_PASSWORD", password),
+                                            ("SECRET_KEY", secret)) if not value]
+        if missing:
+            raise RuntimeError(
+                f"{' and '.join(missing)} not set. DATABASE_URL points at "
+                f"Postgres (production), where QuizLab refuses to start without "
+                f"{'it' if len(missing) == 1 else 'them'}. Set "
+                f"{'it' if len(missing) == 1 else 'them'} in the Render "
+                f"dashboard (Environment).")
+        return password, secret
+    if not password:
+        logger.warning("ADMIN_PASSWORD not set: local SQLite development, using "
+                       "the password 'admin'. Never deploy like this.")
+        password = "admin"
+    if not secret:
+        secret = "quizlab-local-dev-only"
+    return password, secret
+
+
+ADMIN_PASSWORD, SECRET_KEY = _auth_settings(_is_postgres)
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -81,7 +115,12 @@ templates = Jinja2Templates(directory="templates")
 
 @app.on_event("startup")
 async def on_startup():
-    create_db_and_tables()
+    logger.info("startup: QuizLab starting")
+    try:
+        create_db_and_tables()
+    except StartupDatabaseError as exc:
+        logger.critical("startup FAILED: %s", exc)
+        raise
     if not _supabase_enabled():
         logger.warning(
             "SUPABASE_URL / SUPABASE_SERVICE_KEY not set: image uploads are saved to "
@@ -92,9 +131,11 @@ async def on_startup():
     # otherwise wipe every in-progress room. Restore whatever was still live
     # last time the process ran so students and the host can rejoin the same
     # room code instead of getting room_not_found.
+    logger.info("startup: restoring live sessions")
     game_manager.rehydrate_live()
     asyncio.create_task(_cleanup_loop())
     asyncio.create_task(_heartbeat_loop())
+    logger.info("startup: ready")
 
 
 async def _cleanup_loop():
@@ -201,7 +242,7 @@ async def admin_login_page(request: Request):
 
 @app.post("/admin/login")
 async def admin_login(request: Request, password: str = Form(...)):
-    if password == ADMIN_PASSWORD:
+    if hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()):
         request.session["admin"] = True
         return RedirectResponse("/admin/dashboard", status_code=303)
     return templates.TemplateResponse(
@@ -1259,7 +1300,8 @@ async def ws_host(websocket: WebSocket, quiz_id: int, db: Session = Depends(get_
             elif t == "start_game" and room_code:
                 await game_manager.start_game(room_code)
             elif t == "reveal" and room_code:
-                await game_manager.reveal_answer(room_code)
+                await game_manager.reveal_answer(
+                    room_code, at_deadline=bool(data.get("at_deadline")))
             elif t == "next_question" and room_code:
                 await game_manager.next_question(room_code)
             elif t == "end_game" and room_code:

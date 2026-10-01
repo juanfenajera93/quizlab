@@ -890,7 +890,7 @@
         updateTimerDisplay(0, limit);
         clearInterval(timerInterval);
         timerInterval = null;
-        triggerReveal();
+        triggerReveal(true);
       } else {
         updateTimerDisplay(timeLeft, limit);
       }
@@ -928,10 +928,12 @@
     }
   }
 
-  function triggerReveal() {
+  // atDeadline: the ring ran out (the server then waits a moment for the
+  // phones' buzzer auto-submits); false for the "Revelar" button.
+  function triggerReveal(atDeadline) {
     if (revealSent || inReadPhase) return;
     revealSent = true;
-    send({ type: 'reveal' });
+    send({ type: 'reveal', at_deadline: !!atDeadline });
   }
 
   // ── Chart — built dynamically for up to 6 options ─────────────
@@ -1115,7 +1117,7 @@
 
   // ── Controls ───────────────────────────────────────────────────
   window.hostStartGame = function () { ensureAudio(); send({ type: 'start_game' }); };
-  window.hostReveal    = function () { triggerReveal(); };
+  window.hostReveal    = function () { triggerReveal(false); };
   window.hostNext      = function () {
     send({ type: 'next_question' });
   };

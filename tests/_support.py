@@ -53,13 +53,35 @@ def question(q_type, options=(), correct="", time_limit=20, points=100, **extra)
             "time_limit": time_limit, "points": points, "image_url": "", **extra}
 
 
+def saved_quiz(questions, read_time=0, scoring_mode="speed"):
+    """Insert a Quiz + Questions (needed when a test rehydrates from the DB)
+    and return the quiz id."""
+    import json
+    from sqlmodel import Session
+    from models import Question, Quiz
+    with Session(gm.engine) as db:
+        quiz = Quiz(name="t", read_time=read_time, scoring_mode=scoring_mode)
+        db.add(quiz)
+        db.commit()
+        db.refresh(quiz)
+        for i, q in enumerate(questions):
+            db.add(Question(quiz_id=quiz.id, position=i, text=q["text"],
+                            question_type=q["question_type"],
+                            options_json=json.dumps(q["options"]),
+                            correct_json=q["correct_json"],
+                            time_limit=q["time_limit"], points=q["points"]))
+        db.commit()
+        return quiz.id
+
+
 class Game:
     """A GameManager room with a fake host socket and named fake players."""
 
-    def __init__(self, questions, scoring_mode="speed", streak=False, read_time=0):
+    def __init__(self, questions, scoring_mode="speed", streak=False, read_time=0,
+                 quiz_id=999999):
         self.mgr = gm.GameManager()
         self.host = FakeWS()
-        quiz = {"id": 999999, "name": "t", "read_time": read_time,
+        quiz = {"id": quiz_id, "name": "t", "read_time": read_time,
                 "scoring_mode": scoring_mode, "streak_bonus": streak,
                 "questions": questions}
         self.code = self.mgr.create_session(quiz, self.host)

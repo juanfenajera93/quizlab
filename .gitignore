@@ -1,11 +1,31 @@
+# Secrets: never commit. .env.example is the template.
 .env
+.env.*
+!.env.example
+
+# Local databases (production uses Postgres via DATABASE_URL)
 *.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Python
 __pycache__/
 *.pyc
-uploads/*
-!uploads/.gitkeep
 venv/
 .venv/
+
+# Local server / tool output
+*.log
 uvicorn_out.txt
 uvicorn_err.txt
 uv_err.txt
+*_err.txt
+*_out.txt
+
+# Image uploads in local development (production uses Supabase Storage)
+uploads/*
+!uploads/.gitkeep
+
+# Folders accidentally created by a Windows path without separators
+C:*/

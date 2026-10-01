@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import math
@@ -27,6 +28,22 @@ PLAYER_TIMEOUT_SECONDS = 75
 # startup — matches cleanup_old_sessions' own GC window, so a restart never
 # resurrects a room that would otherwise already have been collected.
 LIVE_SESSION_MAX_AGE = timedelta(hours=2)
+
+# Server-side question clock. The server owns each question's deadline:
+# answers that arrive during the read phase are rejected, and so are answers
+# that arrive after the deadline plus ANSWER_GRACE_SECONDS. The grace only
+# covers network latency for the phone's own auto-submit at 0:00 (it
+# confirms a pending selection when its ring runs out); the recorded time is
+# capped at the time limit, so a late-but-accepted answer never scores
+# better than one at the buzzer. If the host tab is closed or frozen, the
+# server reveals on its own AUTO_REVEAL_GRACE_SECONDS after the deadline
+# (a healthy host tab reveals at the deadline itself, so it always wins).
+ANSWER_GRACE_SECONDS = 1.5
+AUTO_REVEAL_GRACE_SECONDS = 3.0
+# A reveal the host tab sends because its ring hit 0 (not the "Revelar"
+# button) waits until this long after the deadline, so the phones' own
+# buzzer auto-submits are in before scoring.
+DEADLINE_SETTLE_SECONDS = 1.0
 
 # Nickname profanity filter (es/en). Matched as substrings after normalizing
 # accents and common leetspeak, so "P3nd3jo" is caught too.
@@ -107,6 +124,8 @@ class GameSession:
         self.revealed_questions: set = set()
         # Room hygiene: locked rooms reject new joins
         self.locked = False
+        # Pending server-side auto-reveal for the current question
+        self.deadline_task: Optional["asyncio.Task"] = None
         # Team mode: number of teams (None/0 = individual play)
         self.team_count: Optional[int] = None
         # Class roster: [{"student_id", "name"}] — when set, players must pick
@@ -168,6 +187,35 @@ class GameSession:
     @property
     def read_time(self) -> int:
         return self.quiz_data.get("read_time", 5)
+
+    @property
+    def answer_deadline(self) -> Optional[float]:
+        """time.time() when the current question's answer phase ends."""
+        q = self.current_question
+        if not q or self.answer_phase_start_time is None:
+            return None
+        return self.answer_phase_start_time + q.get("time_limit", 20)
+
+    def answer_window(self, now: Optional[float] = None) -> Optional[str]:
+        """None if an answer may be accepted right now, else why not:
+        "read_phase" or "time_up"."""
+        if self.answer_phase_start_time is None:
+            return None
+        now = time.time() if now is None else now
+        if now < self.answer_phase_start_time:
+            return "read_phase"
+        if now > self.answer_deadline + ANSWER_GRACE_SECONDS:
+            return "time_up"
+        return None
+
+    def answer_elapsed(self, now: Optional[float] = None) -> float:
+        """Seconds into the answer phase, capped at the time limit (an answer
+        accepted inside the grace window counts as at the buzzer)."""
+        if self.answer_phase_start_time is None:
+            return 0.0
+        now = time.time() if now is None else now
+        limit = (self.current_question or {}).get("time_limit", 20)
+        return min(max(0.0, now - self.answer_phase_start_time), float(limit))
 
     def get_leaderboard(self) -> List[dict]:
         ranked = sorted(
@@ -606,6 +654,10 @@ class GameManager:
                         session.players[prow.player_id] = player
 
                     self.sessions[row.room_code] = session
+                    if session.state == "question":
+                        # The deadline may already have passed while the
+                        # process was down: then this reveals right away.
+                        self._schedule_auto_reveal(session)
                     restored += 1
                     logger.warning(
                         "room %s: REHYDRATED after restart (state=%s, question=%d, %d players)",
@@ -824,6 +876,7 @@ class GameManager:
         logger.info("room %s: question %d/%d started (%s)",
                     session.room_code, qi + 1, len(session.questions), q_type)
         self.persist_live_session(session.room_code)
+        self._schedule_auto_reveal(session)
         await self._broadcast_players(session, msg)
         # Progress is computed after the broadcast so a phone whose send just
         # failed is already out of the denominator.
@@ -853,16 +906,14 @@ class GameManager:
         # For ms and order: use separate handlers
         if q_type in ("ms", "order"):
             return
+        if await self._reject_if_closed(session, player, question_id):
+            return
 
         session.touch()
         player.answers[question_id] = answer_index
         player.confirmed.add(question_id)
 
-        if session.answer_phase_start_time:
-            elapsed = time.time() - session.answer_phase_start_time
-            player.answer_times[question_id] = max(0.0, elapsed)
-        else:
-            player.answer_times[question_id] = 0.0
+        player.answer_times[question_id] = session.answer_elapsed()
 
         if 0 <= answer_index < len(session.answer_counts):
             session.answer_counts[answer_index] += 1
@@ -891,6 +942,8 @@ class GameManager:
             return
         if session.current_question_index != question_id:
             return
+        if session.answer_window():
+            return  # live selection outside the window: just ignore it
 
         session.touch()
         player.selections[question_id] = selections
@@ -928,16 +981,15 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
+        if await self._reject_if_closed(session, player, question_id):
+            return
+
         session.touch()
         sel = player.selections.get(question_id, [])
         player.answers[question_id] = sel
         player.confirmed.add(question_id)
 
-        if session.answer_phase_start_time:
-            elapsed = time.time() - session.answer_phase_start_time
-            player.answer_times[question_id] = max(0.0, elapsed)
-        else:
-            player.answer_times[question_id] = 0.0
+        player.answer_times[question_id] = session.answer_elapsed()
 
         self.persist_live_player(room_code, player)
         await self._send_answer_ack(session, player)
@@ -966,16 +1018,15 @@ class GameManager:
         if session.current_question_index != question_id:
             return
 
+        if await self._reject_if_closed(session, player, question_id):
+            return
+
         session.touch()
         player.selections[question_id] = ordering
         # Auto-update answers (will be used at reveal)
         player.answers[question_id] = ordering
 
-        if session.answer_phase_start_time:
-            elapsed = time.time() - session.answer_phase_start_time
-            player.answer_times[question_id] = max(0.0, elapsed)
-        else:
-            player.answer_times[question_id] = 0.0
+        player.answer_times[question_id] = session.answer_elapsed()
 
         # Count how many players have submitted an ordering
         num_opts = len(session.answer_counts)
@@ -995,13 +1046,71 @@ class GameManager:
             **self._answer_progress(session),
         })
 
-    async def reveal_answer(self, room_code: str):
+    # ─── Server-side question clock ─────────────────────────────────────────
+
+    async def _reject_if_closed(self, session: GameSession, player: "Player",
+                                question_id: int) -> bool:
+        """Refuse an answer outside the answer window (read phase, or past
+        the deadline + grace). Tells the phone so it can say so."""
+        reason = session.answer_window()
+        if not reason:
+            return False
+        logger.info("room %s: answer from %r to question %d rejected (%s)",
+                    session.room_code, player.nickname, question_id + 1, reason)
+        await self._send_to_player(player, {
+            "type": "answer_rejected", "question_id": question_id,
+            "reason": reason,
+        })
+        return True
+
+    def _schedule_auto_reveal(self, session: GameSession) -> None:
+        self._cancel_auto_reveal(session)
+        deadline = session.answer_deadline
+        if deadline is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no event loop (sync callers/tests): host reveals as before
+        session.deadline_task = loop.create_task(self._auto_reveal_at(
+            session.room_code, session.current_question_index,
+            deadline + AUTO_REVEAL_GRACE_SECONDS))
+
+    def _cancel_auto_reveal(self, session: GameSession) -> None:
+        task = session.deadline_task
+        session.deadline_task = None
+        # Never cancel the task we are running in (the auto-reveal itself
+        # calls reveal_answer, which lands here).
+        if task and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+
+    async def _auto_reveal_at(self, room_code: str, qi: int, at: float) -> None:
+        await asyncio.sleep(max(0.0, at - time.time()))
+        session = self.get_session(room_code)
+        if (not session or session.state != "question"
+                or session.current_question_index != qi
+                or qi in session.revealed_questions):
+            return
+        logger.warning("room %s: question %d deadline passed without a reveal "
+                       "from the host (host socket %s); revealing server-side",
+                       room_code, qi + 1,
+                       "attached" if session.host_websocket else "gone")
+        await self.reveal_answer(room_code)
+
+    async def reveal_answer(self, room_code: str, at_deadline: bool = False):
         session = self.get_session(room_code)
         if not session:
             return
         q = session.current_question
         if not q:
             return
+        if at_deadline and session.state == "question" and session.answer_deadline:
+            wait = session.answer_deadline + DEADLINE_SETTLE_SECONDS - time.time()
+            if wait > 0:
+                qi_before = session.current_question_index
+                await asyncio.sleep(min(wait, DEADLINE_SETTLE_SECONDS))
+                if session.current_question_index != qi_before:
+                    return
 
         qi = session.current_question_index
         session.touch()
@@ -1014,6 +1123,7 @@ class GameManager:
             await self._send_host(session, self._build_host_reveal(session))
             return
         session.revealed_questions.add(qi)
+        self._cancel_auto_reveal(session)
 
         session.state = "reveal"
         q_type = q.get("question_type", "mc")
@@ -1165,6 +1275,7 @@ class GameManager:
         session = self.get_session(room_code)
         if not session:
             return
+        self._cancel_auto_reveal(session)
         session.analytics_data = self.compile_analytics(session)
         session.state = "ended"
         session.touch()
@@ -1632,6 +1743,7 @@ class GameManager:
         session = self.get_session(room_code)
         if not session:
             return
+        self._cancel_auto_reveal(session)
         session.state = "ended"
         session.touch()
         self.delete_live_session(room_code)
@@ -1789,17 +1901,15 @@ class GameManager:
         text = text.strip()[:50]
         if not text:
             return
+        if await self._reject_if_closed(session, player, question_id):
+            return
 
         session.touch()
         session.wordcloud_answers.setdefault(question_id, {})[player_id] = text
         player.answers[question_id] = text
         player.confirmed.add(question_id)
 
-        if session.answer_phase_start_time:
-            elapsed = time.time() - session.answer_phase_start_time
-            player.answer_times[question_id] = max(0.0, elapsed)
-        else:
-            player.answer_times[question_id] = 0.0
+        player.answer_times[question_id] = session.answer_elapsed()
 
         self.persist_live_player(room_code, player)
         word_list = list(session.wordcloud_answers[question_id].values())

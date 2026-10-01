@@ -34,9 +34,18 @@ Then open [http://localhost:8000](http://localhost:8000) — you'll be redirecte
 
 | Variable | Description | Default |
 |---|---|---|
-| `ADMIN_PASSWORD` | Password for the `/admin` panel | `admin123` |
-| `SECRET_KEY` | Session signing key — **change in production** | `quizlab-secret-change-me` |
+| `ADMIN_PASSWORD` | Password for the `/admin` panel | **Required in production.** Local SQLite only: `admin` |
+| `SECRET_KEY` | Session signing key | **Required in production.** Local SQLite only: a dev-only value |
 | `DATABASE_URL` | SQLAlchemy database URL | `sqlite:///./quizlab.db` |
+| `DB_CONNECT_TIMEOUT` | Seconds to wait for the database connection at startup | `10` |
+| `MIGRATION_LOCK_TIMEOUT` | Postgres `lock_timeout` for startup migrations | `5s` |
+| `MIGRATION_STATEMENT_TIMEOUT` | Postgres `statement_timeout` for startup migrations | `60s` |
+
+"Production" means `DATABASE_URL` points at Postgres. There, QuizLab refuses
+to start if `ADMIN_PASSWORD` or `SECRET_KEY` is missing, instead of falling
+back to a well-known default. Startup logs every database step
+(`startup: connecting…`, `connected`, `tables created`, `database ready`),
+so a slow or blocked deploy shows where it stopped.
 
 ## How to Create a Quiz
 
