@@ -171,6 +171,12 @@ class GoldenQuestionTypes(unittest.TestCase):
                                          sort_keys=True), encoding="utf-8")
             self.skipTest(f"golden written to {GOLDEN}")
         want = json.loads(GOLDEN.read_text(encoding="utf-8"))
+        # Fields added to the session-detail rows after the golden was taken
+        # (view, scored) are allowed; everything the golden recorded must
+        # still match exactly.
+        got["session_detail"] = [{k: g[k] for k in w if k in g}
+                                 for g, w in zip(got["session_detail"],
+                                                 want["session_detail"])]
         for section in want:
             self.assertEqual(got.get(section), want[section], section)
 

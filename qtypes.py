@@ -21,7 +21,10 @@ question_type.
 """
 
 import json
+import math
 import random
+import unicodedata
+from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 import question_spec
@@ -48,6 +51,14 @@ def _join(options, indices, sep) -> str:
     return sep.join(t for t in (_option_text(options, i) for i in indices) if t is not None)
 
 
+def normalize_text(text: str) -> str:
+    """How short answers are compared: case, accents and extra spaces do
+    not count ("Tamaño" = "tamano" = " TAMAÑO ")."""
+    decomposed = unicodedata.normalize("NFKD", str(text))
+    no_accents = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(no_accents.casefold().split())
+
+
 def _word_freq(texts) -> Dict[str, int]:
     freq: Dict[str, int] = {}
     for txt in texts:
@@ -66,8 +77,13 @@ class QuestionKind:
     # Always worth 0 (word cloud): phones say "no points" even if a value
     # sneaks into `points`.
     never_scores = False
-    # Player websocket message types that answer this type.
+    # Player websocket message types that answer this type. Types added
+    # after the first six answer with the generic "submit" message and
+    # implement normalize_submit().
     messages: Tuple[str, ...] = ()
+    # How the session-detail page shows the stored answers_json:
+    # "bars" (per-option %), "words" (top answers) or None
+    stats_view_kind: Optional[str] = None
 
     @property
     def spec(self) -> Optional[question_spec.QuestionType]:
@@ -89,6 +105,8 @@ class QuestionKind:
             "correct_kind": spec.correct_kind if spec else None,
             "default_points": spec.default_points if spec else 100,
             "default_time": spec.default_time if spec else 20,
+            "requires_image": spec.requires_image if spec else False,
+            "max_len": getattr(self, "MAX_LEN", None),
         }
 
     # ── Live game ───────────────────────────────────────────────────────
@@ -110,6 +128,15 @@ class QuestionKind:
         their original order)."""
         return q.get("correct_json", "")
 
+    def normalize_submit(self, q: dict, value, previous):
+        """A "submit" message's value -> (answer to store, locked), or None
+        to ignore it. `previous` is what the player already submitted."""
+        return None
+
+    def homework_answer(self, q: dict, value):
+        """A homework answer as submitted -> the value to grade."""
+        return value
+
     def score(self, key: str, answer, out: Outcome) -> dict:
         return out.wrong()
 
@@ -124,6 +151,10 @@ class QuestionKind:
 
     def host_live_state(self, session, qi: int) -> dict:
         """Extra live-question state a reconnecting host needs."""
+        return {}
+
+    def host_live_update(self, session, qi: int) -> dict:
+        """Extra fields for the host's answer_counts after a "submit"."""
         return {}
 
     def distribution(self, q: dict, answers: list, state) -> dict:
@@ -153,6 +184,7 @@ class QuestionKind:
 
 class _CountsOptions(QuestionKind):
     """Types answered by choosing options: per-option counts."""
+    stats_view_kind = "bars"
 
     def distribution(self, q, answers, state):
         n_opts = len(q.get("options", []))
@@ -360,6 +392,7 @@ class WordCloud(QuestionKind):
     scored = False
     never_scores = True
     messages = ("wordcloud_answer",)
+    stats_view_kind = "words"
     MAX_LEN = 50
 
     def score(self, key, answer, out):
@@ -386,10 +419,216 @@ class WordCloud(QuestionKind):
         return json.dumps(_word_freq(session.wordcloud_answers.get(qi, {}).values()))
 
     def stats_view(self, answers_raw, total):
-        if not isinstance(answers_raw, dict):
+        return _top_words_view(answers_raw, total)
+
+
+def _top_words_view(answers_raw, total):
+    if not isinstance(answers_raw, dict):
+        return []
+    top = sorted(answers_raw.items(), key=lambda x: x[1], reverse=True)[:5]
+    return [{"word": w, "count": c} for w, c in top]
+
+
+class ShortAnswer(QuestionKind):
+    """Typed answer (max SHORT_MAX_LEN chars) checked against a list of
+    accepted answers, ignoring case, accents and extra spaces."""
+    code = "short"
+    messages = ("submit",)
+    stats_view_kind = "words"
+    TOP = 8
+    MAX_LEN = question_spec.SHORT_MAX_LEN
+
+    @staticmethod
+    def accepted(correct_json) -> List[str]:
+        try:
+            answers = json.loads(correct_json or "[]")
+        except (ValueError, TypeError):
             return []
-        top = sorted(answers_raw.items(), key=lambda x: x[1], reverse=True)[:5]
-        return [{"word": w, "count": c} for w, c in top]
+        return [a for a in answers if isinstance(a, str)] if isinstance(answers, list) else []
+
+    def _clean(self, value):
+        if not isinstance(value, str):
+            return None
+        text = value.strip()[:question_spec.SHORT_MAX_LEN].strip()
+        return text or None
+
+    def normalize_submit(self, q, value, previous):
+        text = self._clean(value)
+        return (text, True) if text else None
+
+    def homework_answer(self, q, value):
+        return self._clean(value)
+
+    def score(self, key, answer, out):
+        if not isinstance(answer, str) or not answer.strip():
+            return out.wrong()
+        accepted = {normalize_text(a) for a in self.accepted(key)}
+        return out.full() if normalize_text(answer) in accepted else out.wrong()
+
+    def player_reveal_extra(self, q, player, qi):
+        # a typed answer, so the phone knows the student did answer
+        answer = player.answers.get(qi)
+        return {"your_answer": answer} if isinstance(answer, str) else {}
+
+    def host_reveal_extra(self, q, session, qi):
+        return {"accepted_answers": self.accepted(q.get("correct_json"))}
+
+    def distribution(self, q, answers, state):
+        """The most common answers, grouped the way they are graded, each
+        shown as its most frequent spelling."""
+        accepted = {normalize_text(a) for a in self.accepted(q.get("correct_json"))}
+        groups: Dict[str, Counter] = {}
+        for a in answers:
+            if isinstance(a, str) and a.strip():
+                groups.setdefault(normalize_text(a), Counter())[a.strip()] += 1
+        top = sorted(groups.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))
+        correct = sum(sum(c.values()) for k, c in groups.items() if k in accepted)
+        return {
+            "correct_count": correct,
+            "top_answers": [{"text": c.most_common(1)[0][0], "count": sum(c.values()),
+                             "accepted": k in accepted}
+                            for k, c in top[:self.TOP]],
+        }
+
+    def your_answer_text(self, q, answer, seen_options):
+        return answer.strip() if isinstance(answer, str) and answer.strip() else "—"
+
+    def correct_answer_text(self, q):
+        return " / ".join(self.accepted(q.get("correct_json")))
+
+    def analytics_answers(self, q, qi, players, session):
+        return json.dumps(dict(Counter(
+            normalize_text(p.answers[qi]) for p in players
+            if isinstance(p.answers.get(qi), str) and p.answers[qi].strip())))
+
+    def stats_view(self, answers_raw, total):
+        return _top_words_view(answers_raw, total)
+
+    def validate_question(self, q):
+        err = question_spec.answers_error(self.accepted(q.get("correct_json")))
+        return [f"short answer {err}"] if err else []
+
+
+class PinOnImage(QuestionKind):
+    """Tap the image once. Inside any circular zone: full speed-formula
+    points. Outside: linearly fewer with the distance to the nearest zone
+    edge, 0 at `falloff` zone radii.
+
+    Coordinates are fractions of the image: x of its width, y of its
+    height; a zone radius is a fraction of the width, so with
+    aspect = height / width every distance is measured in width units and a
+    zone is a true circle on any screen."""
+    code = "pin"
+    messages = ("submit",)
+    stats_view_kind = "words"
+
+    @staticmethod
+    def config(correct_json) -> dict:
+        try:
+            cfg = json.loads(correct_json or "{}")
+        except (ValueError, TypeError):
+            cfg = {}
+        return cfg if isinstance(cfg, dict) else {}
+
+    @staticmethod
+    def _point(value):
+        if not isinstance(value, dict):
+            return None
+        try:
+            x, y = float(value.get("x")), float(value.get("y"))
+        except (TypeError, ValueError):
+            return None
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            return None
+        return {"x": round(x, 4), "y": round(y, 4)}
+
+    def normalize_submit(self, q, value, previous):
+        pin = self._point(value)
+        return (pin, True) if pin else None
+
+    def homework_answer(self, q, value):
+        return self._point(value)
+
+    def measure(self, cfg, pin) -> Optional[Tuple[float, float]]:
+        """(distance outside the nearest zone, that zone's radius), in
+        image-width units; distance <= 0 means inside."""
+        aspect = float(cfg.get("aspect") or 1.0)
+        best = None
+        for z in cfg.get("zones") or []:
+            try:
+                zx, zy, r = float(z["x"]), float(z["y"]), float(z["r"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            edge = math.hypot(pin["x"] - zx, (pin["y"] - zy) * aspect) - r
+            if best is None or edge < best[0]:
+                best = (edge, r)
+        return best
+
+    def score(self, key, answer, out):
+        pin = self._point(answer)
+        cfg = self.config(key)
+        nearest = self.measure(cfg, pin) if pin else None
+        if nearest is None:
+            return out.wrong()
+        edge, r = nearest
+        if edge <= 0:
+            return out.full()
+        falloff = float(cfg.get("falloff", question_spec.PIN_DEFAULT_FALLOFF)) * r
+        proximity = max(0.0, 1 - edge / falloff) if falloff > 0 else 0.0
+        return out.near(proximity, edge / r if r > 0 else 0.0)
+
+    def host_reveal_extra(self, q, session, qi):
+        cfg = self.config(q.get("correct_json"))
+        return {"zones": cfg.get("zones") or [], "aspect": cfg.get("aspect"),
+                "falloff": cfg.get("falloff", question_spec.PIN_DEFAULT_FALLOFF)}
+
+    def distribution(self, q, answers, state):
+        cfg = self.config(q.get("correct_json"))
+        pins = []
+        for a in answers:
+            pin = self._point(a)
+            if pin:
+                nearest = self.measure(cfg, pin)
+                pins.append({**pin, "inside": bool(nearest and nearest[0] <= 0)})
+        return {"pins": pins, "inside": sum(1 for p in pins if p["inside"])}
+
+    def your_answer_text(self, q, answer, seen_options):
+        pin = self._point(answer)
+        nearest = self.measure(self.config(q.get("correct_json")), pin) if pin else None
+        if nearest is None:
+            return "—"
+        edge, r = nearest
+        if edge <= 0:
+            return "📍 dentro de la zona"
+        return f"📍 fuera, a {edge / r:.1f} radios de la zona".replace(".", ",")
+
+    def correct_answer_text(self, q):
+        return "la zona marcada en la imagen"
+
+    def analytics_answers(self, q, qi, players, session):
+        cfg = self.config(q.get("correct_json"))
+        inside = outside = 0
+        for p in players:
+            pin = self._point(p.answers.get(qi))
+            if pin:
+                nearest = self.measure(cfg, pin)
+                if nearest and nearest[0] <= 0:
+                    inside += 1
+                else:
+                    outside += 1
+        return json.dumps({"dentro": inside, "fuera": outside})
+
+    def stats_view(self, answers_raw, total):
+        return _top_words_view(answers_raw, total)
+
+    def validate_question(self, q):
+        problems = []
+        if not (q.get("image_url") or "").strip():
+            problems.append("pin on image needs an image.")
+        err = question_spec.zones_error(self.config(q.get("correct_json")))
+        if err:
+            problems.append(f"pin on image {err}")
+        return problems
 
 
 KINDS: Dict[str, QuestionKind] = {k.code: k for k in [
@@ -399,6 +638,8 @@ KINDS: Dict[str, QuestionKind] = {k.code: k for k in [
     Poll("poll"),
     Ordering(),
     WordCloud(),
+    ShortAnswer(),
+    PinOnImage(),
 ]}
 
 _UNKNOWN = QuestionKind()

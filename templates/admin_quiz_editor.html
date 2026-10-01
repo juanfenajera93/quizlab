@@ -140,6 +140,10 @@
     </p>
   </div>
 
+  <!-- Type-specific settings (accepted answers, image zones...): qtypes.js
+       editor.extra renders here -->
+  <div class="field" id="type-extra" style="display:none"></div>
+
   <!-- Area 2: Time limit with custom input -->
   <div class="field">
     <label>Time Limit</label>
@@ -204,6 +208,7 @@ var questions = {{ questions_json|safe }};
 var quizId = {{ quiz.id if quiz else 'null' }};
 var editingIdx = -1;
 var dragSrcIdx = null;
+var formQuestion = null;   // the question the panel was opened with (null = new)
 
 // Option color classes
 var OPTION_COLORS = ['var(--answer-a)', 'var(--answer-b)', 'var(--answer-c)', 'var(--answer-d)', 'var(--answer-e)', 'var(--answer-f)'];
@@ -220,6 +225,24 @@ function currentType() {
 }
 function editorOf(type) { return QLTypes.get(type).editor; }
 function metaOf(type) { return QLTypes.meta(type); }
+
+// What a type's editor.extra may ask the form for
+var extraApi = {
+  imageUrl: function() { return document.getElementById('img-url-input').value.trim(); }
+};
+
+function renderTypeExtra(type) {
+  var el = document.getElementById('type-extra');
+  var extra = editorOf(type).extra;
+  el.innerHTML = '';
+  el.style.display = extra ? '' : 'none';
+  if (extra) extra.render(el, formQuestion, extraApi);
+}
+
+function typeExtraImageChanged() {
+  var extra = editorOf(currentType()).extra;
+  if (extra && extra.imageChanged) extra.imageChanged(document.getElementById('type-extra'), extraApi);
+}
 
 function renderTypePicker() {
   var group = document.getElementById('type-group');
@@ -615,6 +638,7 @@ function getCorrectJson() {
 
 // ── Question form ─────────────────────────────────────────────────
 function openForm(q, idx) {
+  formQuestion = q;
   document.getElementById('q-text-input').value = q ? q.text : '';
 
   var qType = q ? (q.question_type || 'mc') : 'mc';
@@ -687,6 +711,7 @@ function openForm(q, idx) {
     preview.src = '';
     document.getElementById('img-warning').style.display = 'none';
   }
+  typeExtraImageChanged();
 }
 
 function onNoPointsChange() {
@@ -702,6 +727,7 @@ function onNoPointsChange() {
 function onTypeChange(type) {
   if (!type) type = currentType();
   var ed = editorOf(type);
+  renderTypeExtra(type);
   var isFixed = ed.options === 'fixed';
   var noOptions = ed.options === 'none';
 
@@ -769,6 +795,16 @@ function saveQuestion() {
 
   var correctJson = (ed.options === 'none') ? '' : getCorrectJson();
   var imgUrl = document.getElementById('img-url-input').value.trim() || null;
+  var extraOptions = null;
+  if (ed.extra) {
+    var res = ed.extra.read(document.getElementById('type-extra'), extraApi);
+    if (res.error) { showToast(res.error, 'error'); return; }
+    correctJson = res.correct_json;
+    extraOptions = res.options;
+  }
+  if (metaOf(qType).requires_image && !imgUrl) {
+    showToast('Este tipo de pregunta necesita una imagen', 'error'); return;
+  }
 
   var q = {
     text: text,
@@ -779,6 +815,7 @@ function saveQuestion() {
     points: pts,
     image_url: imgUrl
   };
+  if (extraOptions) q.options = extraOptions;
 
   // The option order is the answer: options must all be filled
   if (ed.correct === 'sequence') {
@@ -843,6 +880,7 @@ function onPreviewError() {
 
 function onPreviewLoad() {
   document.getElementById('img-warning').style.display = 'none';
+  typeExtraImageChanged();
 }
 
 // Question-list warning: probe each image once and remember the result.
@@ -864,7 +902,7 @@ function onImageUrlInput(url) {
   document.getElementById('img-warning').style.display = 'none';
   var preview = document.getElementById('img-preview');
   if (url) { preview.src = url; preview.style.display = 'block'; }
-  else { preview.style.display = 'none'; preview.src = ''; }
+  else { preview.style.display = 'none'; preview.src = ''; typeExtraImageChanged(); }
 }
 
 // ── CSV import ─────────────────────────────────────────────────────
@@ -960,6 +998,15 @@ function saveQuiz() {
 
   var readTime = getReadTime();
 
+  // Types may need to finish a question before saving (pin: measure the
+  // image proportions of questions imported from CSV)
+  Promise.all(questions.map(function(q) {
+    var ed = editorOf(q.question_type || 'mc');
+    return (ed.extra && ed.extra.prepareSave) ? ed.extra.prepareSave(q) : null;
+  })).then(function() { postQuiz(name, readTime); });
+}
+
+function postQuiz(name, readTime) {
   var scoringEl = document.querySelector('input[name="scoring-mode"]:checked');
   var payload = {
     quiz_id: quizId,

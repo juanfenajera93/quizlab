@@ -1161,3 +1161,75 @@ body.projector-mode .q-progress { font-size: 26px !important; }
 body.projector-mode .wc-waiting { font-size: 26px !important; }
 body.projector-mode .word-chip { font-size: 20px !important; }
 body.projector-mode::after { opacity: 0 !important; }
+
+/* ── Short answer reveal: accepted answers + most common answers ── */
+.text-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  max-width: 960px;
+  flex-shrink: 0;
+}
+.accepted-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.accepted-chip {
+  background: var(--lime);
+  color: #111110;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  text-transform: uppercase;
+}
+.text-reveal-subtitle {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+.text-answer-row {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 14px 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.text-answer-row.slide-up { animation: slide-up-tile 0.3s ease both; }
+.text-answer-row .tile-bar { display: block; }
+.text-answer-row .tile-bar-fill { background: var(--text-muted); }
+.text-answer-row.accepted { border-color: var(--lime); }
+.text-answer-row.accepted .tile-bar-fill { background: var(--lime); }
+.text-answer-mark { font-weight: 900; color: var(--fire); width: 18px; }
+.text-answer-row.accepted .text-answer-mark { color: var(--lime); }
+.text-answer-text {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  overflow-wrap: break-word;
+}
+.text-answer-row .tile-count { font-family: 'Syne Mono', monospace; }
+.text-answer-row .tile-pct { font-family: 'Syne Mono', monospace; color: var(--text-muted); }
+
+/* ── Pin reveal: the image with zones and every pin ── */
+.pin-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  min-height: 0;
+  flex-shrink: 1;
+}
+.pin-reveal .pin-img { max-height: calc(100vh - 330px); cursor: default; }
+
+body.projector-mode .accepted-chip { font-size: 30px; }
+body.projector-mode .text-answer-text { font-size: 30px; }

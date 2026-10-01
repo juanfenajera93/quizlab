@@ -1103,3 +1103,11 @@ html, body {
   font-size: 20px;
   cursor: pointer;
 }
+
+/* ── Pin on image: the picture takes the whole answer area ── */
+.player-answers.pin-answer {
+  display: block;
+  text-align: center;
+}
+.player-answers.pin-answer .pin-stage { margin: 0 auto; align-self: auto; }
+.player-answers.pin-answer .pin-img { max-height: 58vh; }

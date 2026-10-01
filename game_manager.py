@@ -308,7 +308,8 @@ def _breakdown(details: dict, base_points: int, bonus: int, streak: int,
         "streak": streak,
         "total": total,
     }
-    for key in ("speed_factor", "time_taken", "hits", "parts"):
+    for key in ("speed_factor", "time_taken", "hits", "parts",
+                "proximity", "distance", "full_points"):
         if key in details:
             out[key] = details[key]
     return out
@@ -1631,6 +1632,44 @@ class GameManager:
             "class_id": session.class_id,
             "question_stats": question_stats,
         }
+
+    async def handle_submit(self, room_code: str, player_id: str,
+                            question_id: int, value):
+        """Generic answer message for types that implement
+        normalize_submit() (short answer, pin, ...): the type cleans and
+        validates the value and says whether it locks the question."""
+        session = self.get_session(room_code)
+        if not session or session.state != "question":
+            return
+        if session.current_question_index != question_id:
+            return
+        player = session.players.get(player_id)
+        if not player or question_id in player.confirmed:
+            return
+        if not self._accepts(session, "submit"):
+            return
+        if await self._reject_if_closed(session, player, question_id):
+            return
+        q = session.current_question
+        result = kind_of(q).normalize_submit(q, value, player.answers.get(question_id))
+        if result is None:
+            return
+        answer, locked = result
+
+        session.touch()
+        player.answers[question_id] = answer
+        if locked:
+            player.confirmed.add(question_id)
+        player.answer_times[question_id] = session.answer_elapsed()
+
+        self.persist_live_player(room_code, player)
+        await self._send_answer_ack(session, player)
+        await self._send_host(session, {
+            "type": "answer_counts",
+            "counts": session.answer_counts,
+            **self._answer_progress(session),
+            **kind_of(q).host_live_update(session, question_id),
+        })
 
     async def handle_wordcloud_answer(
         self,

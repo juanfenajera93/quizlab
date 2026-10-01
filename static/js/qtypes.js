@@ -600,6 +600,518 @@
               requireTwoOptions: false, note: 'wordcloud-note' }
   });
 
+  // ── Shared: typed answers (short answer) ──────────────────────────
+  function textAnswerInput(container, max, placeholder, onEnter) {
+    var wrap = document.createElement('div');
+    wrap.className = 'wc-input-area';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'wc-input';
+    input.maxLength = max;
+    input.placeholder = placeholder;
+    input.autocomplete = 'off';
+    input.setAttribute('autocapitalize', 'off');
+    var count = document.createElement('div');
+    count.className = 'wc-char-count';
+    count.textContent = '0 / ' + max;
+    input.addEventListener('input', function () {
+      count.textContent = input.value.length + ' / ' + max;
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); onEnter(); }
+    });
+    wrap.appendChild(input);
+    wrap.appendChild(count);
+    container.appendChild(wrap);
+    return input;
+  }
+
+  // ── Shared: pin on image ──────────────────────────────────────────
+  // Coordinates are fractions of the image (x of its width, y of its
+  // height); a zone radius is a fraction of the width, so its height in
+  // the picture is r / aspect of the height (aspect = height / width).
+  function pinStage(src) {
+    var stage = document.createElement('div');
+    stage.className = 'pin-stage';
+    var img = document.createElement('img');
+    img.className = 'pin-img';
+    img.alt = '';
+    img.draggable = false;
+    img.src = src || '';
+    stage.appendChild(img);
+    return { stage: stage, img: img };
+  }
+
+  function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+  function pointIn(img, e) {
+    var r = img.getBoundingClientRect();
+    return { x: clamp01((e.clientX - r.left) / r.width),
+             y: clamp01((e.clientY - r.top) / r.height) };
+  }
+
+  function imgAspect(img, fallback) {
+    return (img.naturalWidth && img.naturalHeight)
+      ? img.naturalHeight / img.naturalWidth : (fallback || 1);
+  }
+
+  function placeAt(el, x, y) {
+    el.style.left = (x * 100) + '%';
+    el.style.top = (y * 100) + '%';
+  }
+
+  function sizeZone(el, z, aspect, scale) {
+    placeAt(el, z.x, z.y);
+    el.style.width = (2 * z.r * scale * 100) + '%';
+    el.style.height = (2 * z.r * scale / aspect * 100) + '%';
+  }
+
+  function zoneCircle(z, aspect, scale, cls) {
+    var el = document.createElement('div');
+    el.className = 'pin-zone' + (cls ? ' ' + cls : '');
+    sizeZone(el, z, aspect, scale);
+    return el;
+  }
+
+  function pinDot(x, y, cls) {
+    var el = document.createElement('div');
+    el.className = 'pin-dot' + (cls ? ' ' + cls : '');
+    placeAt(el, x, y);
+    return el;
+  }
+
+  function pinConfig(correctJson) {
+    try {
+      var cfg = JSON.parse(correctJson || '{}');
+      return cfg && typeof cfg === 'object' ? cfg : {};
+    } catch (e) { return {}; }
+  }
+
+  // One tap places (or moves) the pin; returns a getter for the point.
+  function pinPicker(container, src, onPick) {
+    var s = pinStage(src);
+    var dot = pinDot(0, 0);
+    dot.style.display = 'none';
+    s.stage.appendChild(dot);
+    var point = null;
+    var locked = false;
+    s.img.addEventListener('click', function (e) {
+      if (locked) return;
+      point = pointIn(s.img, e);
+      placeAt(dot, point.x, point.y);
+      dot.style.display = '';
+      onPick(point);
+    });
+    container.appendChild(s.stage);
+    return {
+      point: function () { return point; },
+      set: function (p) {
+        if (!p) return;
+        point = p;
+        placeAt(dot, p.x, p.y);
+        dot.style.display = '';
+      },
+      lock: function () { locked = true; s.stage.classList.add('locked'); }
+    };
+  }
+
+  function noteTile(tiles, key) {
+    tiles.className = 'answer-tiles';
+    var note = document.createElement('div');
+    note.className = 'wc-waiting';
+    note.textContent = t(key);
+    tiles.appendChild(note);
+    return true;
+  }
+
+  // ── short: typed answer, several accepted ─────────────────────────
+  define('short', {
+    player: {
+      build: function (ctx) {
+        var max = (META.short || {}).max_len || 20;
+        ctx.container.className = 'player-answers';
+        var input = textAnswerInput(ctx.container, max,
+          t('short_placeholder').replace('{n}', max), submit);
+
+        function submit() {
+          if (ctx.isAnswered()) return;
+          var text = input.value.trim().slice(0, max);
+          if (!text) return;
+          ctx.setAnswered();
+          ctx.freezePoints();
+          input.disabled = true;
+          ctx.hideConfirm();
+          ctx.send({ type: 'submit', value: text });
+          ctx.showOverlay();
+        }
+
+        input.addEventListener('input', function () {
+          var cb = ctx.confirmButton();
+          if (cb) cb.classList.toggle('visible', input.value.trim() !== '');
+        });
+        ctx.addConfirm(t('confirm'), submit, false);
+        setTimeout(function () { input.focus(); }, 50);
+        return {
+          timeout: function () {
+            if (input.value.trim()) { submit(); return; }
+            ctx.stopPointsCounter();
+            input.disabled = true;
+            ctx.hideConfirm();
+            ctx.showOverlay();
+          },
+          lock: function () { input.disabled = true; }
+        };
+      }
+    },
+    host: {
+      chart: 'none',
+      buildTiles: function (tiles) { return noteTile(tiles, 'students_writing'); },
+      correct: function () { return null; },
+      // Accepted answers, how many got it, and the most common answers
+      // given (grouped the way they were graded) with counts.
+      reveal: function (msg, instant, H) {
+        var tiles = document.getElementById('answer-tiles');
+        var dist = msg.distribution || {};
+        var answered = dist.answered || 0;
+        tiles.innerHTML = '';
+        tiles.className = 'text-reveal';
+
+        var head = document.createElement('div');
+        head.className = 'order-reveal-head';
+        head.innerHTML =
+          '<span class="order-reveal-title">' + esc(t('accepted_answers')) + '</span>' +
+          '<span class="order-reveal-summary">' +
+            esc(t('short_correct').replace('{n}', dist.correct_count || 0)
+                                  .replace('{m}', answered)) + '</span>';
+        tiles.appendChild(head);
+
+        var chips = document.createElement('div');
+        chips.className = 'accepted-chips';
+        (msg.accepted_answers || []).forEach(function (a) {
+          var c = document.createElement('span');
+          c.className = 'accepted-chip';
+          c.textContent = a;
+          chips.appendChild(c);
+        });
+        tiles.appendChild(chips);
+
+        var top = dist.top_answers || [];
+        if (top.length) {
+          var title = document.createElement('div');
+          title.className = 'text-reveal-subtitle';
+          title.textContent = t('top_answers');
+          tiles.appendChild(title);
+        }
+        top.forEach(function (item, i) {
+          var row = document.createElement('div');
+          row.className = 'text-answer-row' + (item.accepted ? ' accepted' : '') +
+                          (instant ? '' : ' slide-up');
+          if (!instant) row.style.animationDelay = (i * 70) + 'ms';
+          var p = H.pct(item.count, answered);
+          row.innerHTML =
+            '<span class="text-answer-mark">' + (item.accepted ? '✓' : '✗') + '</span>' +
+            '<span class="text-answer-text">' + esc(item.text) + '</span>' +
+            '<span class="tile-count">' + item.count + '</span>' +
+            '<span class="tile-pct">' + p + '%</span>' +
+            '<span class="tile-bar"><span class="tile-bar-fill" style="width:' + p + '%"></span></span>';
+          tiles.appendChild(row);
+        });
+      }
+    },
+    homework: {
+      render: function (body, q, api) {
+        var max = (META.short || {}).max_len || 20;
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'hw-input';
+        input.maxLength = max;
+        input.placeholder = t('short_placeholder').replace('{n}', max);
+        input.value = typeof api.get() === 'string' ? api.get() : '';
+        input.addEventListener('input', function () {
+          api.set(input.value.trim() || null);
+        });
+        body.appendChild(input);
+      }
+    },
+    editor: {
+      short: 'Corta', pick: 'Respuesta corta', options: 'none', correct: 'none',
+      requireTwoOptions: false,
+      extra: {
+        render: function (el, q) {
+          var max = (META.short || {}).max_len || 20;
+          var current = [];
+          if (q && q.question_type === 'short') {
+            try { current = JSON.parse(q.correct_json || '[]'); } catch (e) {}
+          }
+          el.innerHTML =
+            '<label>Respuestas aceptadas</label>' +
+            '<textarea id="short-answers" rows="3" placeholder="Una por línea, p. ej.&#10;Mediana&#10;la mediana"></textarea>' +
+            '<p class="extra-hint">Una por línea, máx. ' + max + ' caracteres. ' +
+            'Mayúsculas, tildes y espacios extra no cuentan (Tamaño = tamano).</p>';
+          el.querySelector('#short-answers').value = current.join('\n');
+        },
+        read: function (el) {
+          var max = (META.short || {}).max_len || 20;
+          var answers = el.querySelector('#short-answers').value.split('\n')
+            .map(function (a) { return a.trim(); })
+            .filter(function (a) { return a; });
+          if (!answers.length) return { error: 'Escribe al menos una respuesta aceptada' };
+          var long = answers.filter(function (a) { return a.length > max; });
+          if (long.length) return { error: '"' + long[0] + '" tiene más de ' + max + ' caracteres' };
+          return { correct_json: JSON.stringify(answers), options: [] };
+        }
+      }
+    }
+  });
+
+  // ── pin: tap the image ────────────────────────────────────────────
+  define('pin', {
+    player: {
+      build: function (ctx) {
+        ctx.hideImage();               // the image moves into the answer area
+        ctx.container.className = 'player-answers pin-answer';
+        var hint = document.createElement('div');
+        hint.className = 'pin-hint';
+        hint.textContent = t('pin_tap');
+        ctx.container.appendChild(hint);
+        var picker = pinPicker(ctx.container, ctx.q.image_url, function () {
+          if (ctx.isAnswered()) return;
+          hint.textContent = t('pin_move');
+          var cb = ctx.confirmButton();
+          if (cb) cb.classList.add('visible');
+        });
+
+        function submit() {
+          if (ctx.isAnswered() || !picker.point()) return;
+          ctx.setAnswered();
+          picker.lock();
+          ctx.freezePoints();
+          ctx.hideConfirm();
+          ctx.send({ type: 'submit', value: picker.point() });
+          ctx.showOverlay();
+        }
+
+        ctx.addConfirm(t('confirm'), submit, false);
+        return {
+          timeout: function () {
+            if (picker.point()) { submit(); return; }
+            ctx.stopPointsCounter();
+            picker.lock();
+            ctx.hideConfirm();
+            ctx.showOverlay();
+          },
+          lock: function () { picker.lock(); }
+        };
+      }
+    },
+    host: {
+      chart: 'none',
+      buildTiles: function (tiles) { return noteTile(tiles, 'students_pinning'); },
+      correct: function () { return null; },
+      // The image with the correct zones (dashed: where pins still score)
+      // and every student's pin, green inside, orange outside.
+      reveal: function (msg, instant, H) {
+        var tiles = document.getElementById('answer-tiles');
+        var dist = msg.distribution || {};
+        var q = H.currentQuestion() || {};
+        H.hideQuestionImage();
+        tiles.innerHTML = '';
+        tiles.className = 'pin-reveal';
+
+        var head = document.createElement('div');
+        head.className = 'order-reveal-head';
+        head.innerHTML =
+          '<span class="order-reveal-summary">' +
+            esc(t('pin_inside').replace('{n}', dist.inside || 0)
+                               .replace('{m}', dist.answered || 0)) + '</span>';
+        tiles.appendChild(head);
+
+        var s = pinStage(q.image_url);
+        tiles.appendChild(s.stage);
+        function draw() {
+          var aspect = imgAspect(s.img, msg.aspect);
+          var falloff = typeof msg.falloff === 'number' ? msg.falloff : 1;
+          (msg.zones || []).forEach(function (z) {
+            if (falloff > 0) s.stage.appendChild(zoneCircle(z, aspect, 1 + falloff, 'falloff'));
+            s.stage.appendChild(zoneCircle(z, aspect, 1));
+          });
+          (dist.pins || []).forEach(function (p, i) {
+            var dot = pinDot(p.x, p.y, p.inside ? 'inside' : 'outside');
+            if (!instant) { dot.classList.add('pin-pop'); dot.style.animationDelay = (i * 40) + 'ms'; }
+            s.stage.appendChild(dot);
+          });
+          H.fit();
+        }
+        if (s.img.complete && s.img.naturalWidth) draw();
+        else { s.img.onload = draw; s.img.onerror = draw; }
+      }
+    },
+    homework: {
+      render: function (body, q, api) {
+        // the stage replaces the regular question image
+        var regular = document.getElementById('hw-q-image');
+        if (regular) regular.style.display = 'none';
+        var hint = document.createElement('div');
+        hint.className = 'pin-hint';
+        hint.textContent = api.get() ? t('pin_move') : t('pin_tap');
+        body.appendChild(hint);
+        var picker = pinPicker(body, q.image_url, function (p) {
+          api.set({ x: Math.round(p.x * 10000) / 10000, y: Math.round(p.y * 10000) / 10000 });
+          hint.textContent = t('pin_move');
+        });
+        picker.set(api.get());
+      }
+    },
+    editor: {
+      short: 'Pin', pick: 'Pin en imagen', options: 'none', correct: 'none',
+      requireTwoOptions: false,
+      extra: {
+        // Click the image to add a zone; drag a zone to move it, drag its
+        // edge handle to resize it; double-click to delete it.
+        render: function (el, q, api) {
+          var cfg = (q && q.question_type === 'pin') ? pinConfig(q.correct_json) : {};
+          var state = {
+            zones: (cfg.zones || []).map(function (z) { return { x: z.x, y: z.y, r: z.r }; }),
+            falloff: typeof cfg.falloff === 'number' ? cfg.falloff : 1,
+            aspect: cfg.aspect || null
+          };
+          el._pin = state;
+          el.innerHTML =
+            '<label>Zonas correctas</label>' +
+            '<p class="extra-hint">Haz clic en la imagen para añadir una zona circular. ' +
+            'Arrastra una zona para moverla y su punto del borde para cambiar el tamaño; ' +
+            'doble clic para borrarla.</p>' +
+            '<div class="pin-editor"></div>' +
+            '<label style="margin-top:10px;display:flex;align-items:center;gap:8px;' +
+            'text-transform:none;letter-spacing:normal;font-weight:400">Tolerancia fuera de la zona: ' +
+            '<input type="number" id="pin-falloff" min="0" max="10" step="0.25" ' +
+            'style="width:72px;padding:4px 6px"> radios</label>' +
+            '<p class="extra-hint">Fuera de la zona, los puntos bajan en línea recta ' +
+            'hasta 0 a esa distancia del borde (1 = un radio).</p>';
+          var falloffInput = el.querySelector('#pin-falloff');
+          falloffInput.value = state.falloff;
+          falloffInput.addEventListener('input', function () {
+            var v = parseFloat(falloffInput.value);
+            if (!isNaN(v)) { state.falloff = v; draw(); }
+          });
+          var box = el.querySelector('.pin-editor');
+          var s = null;
+
+          function mount() {
+            box.innerHTML = '';
+            var src = api.imageUrl();
+            if (!src) {
+              box.innerHTML = '<p class="extra-hint warn">Primero sube o pega una imagen (abajo).</p>';
+              s = null;
+              return;
+            }
+            s = pinStage(src);
+            box.appendChild(s.stage);
+            s.img.addEventListener('load', function () {
+              state.aspect = imgAspect(s.img, state.aspect);
+              draw();
+            });
+            s.img.addEventListener('click', function (e) {
+              var p = pointIn(s.img, e);
+              state.zones.push({ x: round4(p.x), y: round4(p.y), r: 0.06 });
+              draw();
+            });
+          }
+
+          function round4(v) { return Math.round(v * 10000) / 10000; }
+
+          // Rebuilt on add / delete / tolerance change only: a drag moves
+          // the existing elements, so the one holding the pointer capture
+          // stays in the page for the whole gesture.
+          function draw() {
+            if (!s) return;
+            s.stage.querySelectorAll('.pin-zone').forEach(function (z) { z.remove(); });
+            var aspect = imgAspect(s.img, state.aspect);
+            state.zones.forEach(function (z, i) {
+              var ring = null;
+              if (state.falloff > 0) {
+                ring = zoneCircle(z, aspect, 1 + state.falloff, 'falloff');
+                s.stage.appendChild(ring);
+              }
+              var c = zoneCircle(z, aspect, 1, 'editable');
+              function layout() {
+                sizeZone(c, z, aspect, 1);
+                if (ring) sizeZone(ring, z, aspect, 1 + state.falloff);
+              }
+              var handle = document.createElement('div');
+              handle.className = 'pin-zone-handle';
+              c.appendChild(handle);
+              c.addEventListener('dblclick', function (e) {
+                e.stopPropagation();
+                state.zones.splice(i, 1);
+                draw();
+              });
+              c.addEventListener('pointerdown', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var resizing = e.target === handle;
+                c.setPointerCapture(e.pointerId);
+                function move(ev) {
+                  var p = pointIn(s.img, ev);
+                  if (resizing) {
+                    var dx = p.x - z.x, dy = (p.y - z.y) * aspect;
+                    z.r = round4(Math.max(0.01, Math.min(1, Math.sqrt(dx * dx + dy * dy))));
+                  } else {
+                    z.x = round4(p.x);
+                    z.y = round4(p.y);
+                  }
+                  layout();
+                }
+                function up() {
+                  c.removeEventListener('pointermove', move);
+                  c.removeEventListener('pointerup', up);
+                }
+                c.addEventListener('pointermove', move);
+                c.addEventListener('pointerup', up);
+              });
+              s.stage.appendChild(c);
+            });
+          }
+
+          mount();
+          // A new image (upload / pasted URL) keeps the zones, re-measured
+          el._pinRemount = mount;
+        },
+        imageChanged: function (el) { if (el._pinRemount) el._pinRemount(); },
+        read: function (el, api) {
+          var state = el._pin;
+          if (!api.imageUrl()) return { error: 'Pin en imagen necesita una imagen' };
+          if (!state.zones.length) return { error: 'Haz clic en la imagen para marcar al menos una zona' };
+          if (!state.aspect) return { error: 'La imagen no se pudo cargar; revisa el enlace' };
+          return {
+            correct_json: JSON.stringify({ zones: state.zones, falloff: state.falloff,
+                                           aspect: Math.round(state.aspect * 10000) / 10000 }),
+            options: []
+          };
+        },
+        // A pin question imported from CSV may lack the image proportions:
+        // measure them before the quiz is saved.
+        prepareSave: function (q) {
+          var cfg = pinConfig(q.correct_json);
+          if (cfg.aspect || !q.image_url) return Promise.resolve();
+          return new Promise(function (resolve) {
+            var img = new Image();
+            img.onload = function () {
+              if (img.naturalWidth && img.naturalHeight) {
+                cfg.aspect = Math.round(img.naturalHeight / img.naturalWidth * 10000) / 10000;
+                q.correct_json = JSON.stringify(cfg);
+              }
+              resolve();
+            };
+            img.onerror = function () { resolve(); };
+            img.src = q.image_url;
+            setTimeout(resolve, 8000);
+          });
+        }
+      }
+    }
+  });
+
   window.QLTypes = {
     LETTERS: LETTERS,
     all: TYPES,

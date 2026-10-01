@@ -71,6 +71,9 @@ class TemplateRoundTrip(unittest.TestCase):
         self.assertEqual(got, {
             "mc": "1", "tf": "1", "ms": "[0, 1, 3]", "poll": "",
             "order": "[0, 1, 2, 3, 4]", "wordcloud": "",
+            "short": '["Mediana", "la mediana"]',
+            "pin": '{"zones": [{"x": 0.5, "y": 0.175, "r": 0.05}], '
+                   '"falloff": 1.0, "aspect": 1.0895}',
         })
 
     def test_game_engine_scores_each_example_answer_as_correct(self):

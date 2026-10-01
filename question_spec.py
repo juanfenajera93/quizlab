@@ -96,6 +96,11 @@ CORRECT_SINGLE = "single"    # exactly one letter
 CORRECT_MULTI = "multi"      # one or more letters
 CORRECT_ORDER = "order"      # blank: the options are already in correct order
 CORRECT_NONE = "none"        # blank: nothing is correct (poll, wordcloud)
+CORRECT_ANSWERS = "answers"  # accepted texts separated by | (short)
+CORRECT_ZONES = "zones"      # circles on the image, in percent (pin)
+
+SHORT_MAX_LEN = 20           # characters a student can type for `short`
+PIN_DEFAULT_FALLOFF = 1.0    # zone radii outside a zone that still score
 
 
 @dataclass(frozen=True)
@@ -117,6 +122,7 @@ class QuestionType:
     fixed_points: Optional[int] = None   # type ignores the points column
     example_answer: object = None        # a player answer the example scores
                                          # as correct (verified by tests)
+    requires_image: bool = False         # image_url is mandatory
 
 
 QUESTION_TYPES = {t.code: t for t in [
@@ -256,7 +262,163 @@ QUESTION_TYPES = {t.code: t for t in [
         },
         example_answer="duplicados",
     ),
+    QuestionType(
+        code="short", label="Short answer",
+        summary=f"Students type a short answer (max {SHORT_MAX_LEN} "
+                "characters); any accepted answer is correct. Case, accents "
+                "and extra spaces are ignored.",
+        min_options=0, max_options=0,
+        correct_kind=CORRECT_ANSWERS,
+        correct_rule="Every accepted answer, separated by | (e.g. "
+                     "Mediana | la mediana). Case, accents and extra spaces "
+                     "do not matter (Tamaño = tamano = \" TAMAÑO \"), so list "
+                     "real alternatives only, each at most "
+                     f"{SHORT_MAX_LEN} characters. Leave the option columns "
+                     "blank.",
+        self_check="`short`: option columns blank; `correct` lists every acceptable answer separated by `|`, each 20 characters or fewer.",
+        scoring="Full points (faster answers earn more in speed mode) if the "
+                "answer matches any accepted answer, 0 otherwise.",
+        default_time=30, time_guidance="20-40 s",
+        default_points=100,
+        example={
+            "question": "¿Qué medida de tendencia central divide los datos "
+                        "ordenados en dos mitades iguales?",
+            "type": "short",
+            "correct": "Mediana | la mediana", "time_limit": "30",
+            "points": "200",
+        },
+        example_answer="  LA  MEDIANA ",
+    ),
+    QuestionType(
+        code="pin", label="Pin on image",
+        summary="Students tap the image to place one pin. Correct inside a "
+                "marked circular zone; outside, fewer points the farther it "
+                "lands. Needs an image.",
+        min_options=0, max_options=0,
+        correct_kind=CORRECT_ZONES,
+        correct_rule="One or more circular zones separated by |, each written "
+                     "`x y r` in percent: x across the image from the left, y "
+                     "down from the top, r (the radius) as a percent of the "
+                     "image width (e.g. 50 17.5 5). Optional: falloff=F, how "
+                     "far outside a zone a pin still earns points, in zone "
+                     f"radii (default {PIN_DEFAULT_FALLOFF:g}), and aspect=A, "
+                     "the image height divided by its width (the quiz editor "
+                     "measures it when you save). Requires image_url.",
+        self_check="`pin`: only when you can see a real image the teacher gave you; `image_url` is set and every `x y r` zone covers the answer in that image.",
+        scoring="Full points (speed formula) inside any zone. Outside, the "
+                "points fall linearly with the distance to the nearest zone "
+                "edge, reaching 0 at the falloff distance (default: one zone "
+                "radius).",
+        default_time=30, time_guidance="20-40 s",
+        default_points=100,
+        requires_image=True,
+        example={
+            "question": "En el diagrama de caja, marca dónde está la mediana.",
+            "type": "pin",
+            "correct": "50 17.5 5 | falloff=1 | aspect=1.0895",
+            "time_limit": "30", "points": "200",
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/1/1a/"
+                         "Boxplot_vs_PDF.svg",
+        },
+        example_answer={"x": 0.51, "y": 0.18},
+    ),
 ]}
+
+
+# ─── `correct` cells for answers and zones ──────────────────────────────────
+# Shared by the importer, the save endpoint (qtypes validation) and the CSV
+# export, so an exported quiz re-imports identically.
+
+def parse_answers_cell(raw: str) -> list:
+    return [a.strip() for a in (raw or "").split("|") if a.strip()]
+
+
+def answers_error(answers) -> Optional[str]:
+    if not isinstance(answers, list) or not answers:
+        return "needs at least one accepted answer."
+    for a in answers:
+        if not isinstance(a, str) or not a.strip():
+            return "accepted answers cannot be empty."
+        if len(a.strip()) > SHORT_MAX_LEN:
+            return (f"'{a.strip()}' is longer than {SHORT_MAX_LEN} characters, "
+                    f"the most a student can type.")
+    return None
+
+
+def _num(token: str) -> float:
+    return float(token.strip().replace(",", "."))   # Excel may write 17,5
+
+
+def parse_zones_cell(raw: str) -> dict:
+    """`x y r | x y r | falloff=F | aspect=A` (percent) -> the stored
+    config. Raises ValueError with a readable message."""
+    zones, falloff, aspect = [], PIN_DEFAULT_FALLOFF, None
+    for token in (t.strip() for t in (raw or "").split("|")):
+        if not token:
+            continue
+        key, eq, val = token.partition("=")
+        if eq:
+            key = key.strip().lower()
+            if key == "falloff":
+                falloff = _num(val)
+            elif key == "aspect":
+                aspect = _num(val)
+            else:
+                raise ValueError(f"unknown setting '{key}' (use falloff= or aspect=).")
+            continue
+        parts = token.split()
+        if len(parts) != 3:
+            raise ValueError(f"zone '{token}' must be three numbers: x y r.")
+        x, y, r = (_num(v) for v in parts)
+        zones.append({"x": round(x / 100, 4), "y": round(y / 100, 4),
+                      "r": round(r / 100, 4)})
+    cfg = {"zones": zones, "falloff": falloff, "aspect": aspect}
+    err = zones_error(cfg, need_aspect=False)
+    if err:
+        raise ValueError(err)
+    return cfg
+
+
+def zones_error(cfg, need_aspect=True) -> Optional[str]:
+    if not isinstance(cfg, dict) or not cfg.get("zones"):
+        return "needs at least one zone (x y r)."
+    for z in cfg["zones"]:
+        try:
+            x, y, r = float(z["x"]), float(z["y"]), float(z["r"])
+        except (KeyError, TypeError, ValueError):
+            return "every zone needs x, y and r."
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            return "zone centers must be inside the image (0-100%)."
+        if not 0 < r <= 1:
+            return "zone radius must be more than 0% and at most 100% of the width."
+    try:
+        falloff = float(cfg.get("falloff", PIN_DEFAULT_FALLOFF))
+    except (TypeError, ValueError):
+        return "falloff must be a number."
+    if not 0 <= falloff <= 10:
+        return "falloff must be between 0 and 10 zone radii."
+    aspect = cfg.get("aspect")
+    if aspect is None:
+        return "the image proportions are unknown; open the question in the editor with a working image." if need_aspect else None
+    try:
+        if not 0.05 <= float(aspect) <= 20:
+            return "aspect (image height / width) must be between 0.05 and 20."
+    except (TypeError, ValueError):
+        return "aspect must be a number."
+    return None
+
+
+def _fmt(v: float) -> str:
+    return f"{v:.2f}".rstrip("0").rstrip(".")
+
+
+def encode_zones_cell(cfg: dict) -> str:
+    parts = [f"{_fmt(z['x'] * 100)} {_fmt(z['y'] * 100)} {_fmt(z['r'] * 100)}"
+             for z in cfg.get("zones", [])]
+    parts.append(f"falloff={_fmt(float(cfg.get('falloff', PIN_DEFAULT_FALLOFF)))}")
+    if cfg.get("aspect"):
+        parts.append(f"aspect={float(cfg['aspect']):.4f}".rstrip("0").rstrip("."))
+    return " | ".join(parts)
 DEFAULT_TYPE = "mc"
 
 
@@ -353,8 +515,9 @@ followed exactly.
    material: concepts, interpretation, applying a method, spotting common
    mistakes. Avoid trivia and questions answerable without the material.
 3. Unless the teacher says otherwise: write **10 questions**, mostly `mc`, with
-   some `tf`, `ms` and `order`, and at most one `poll` or `wordcloud` as a
-   warm-up. Follow any numbers, types, difficulty or topics the teacher asks
+   some `tf`, `ms`, `order` and `short`, and at most one `poll` or `wordcloud`
+   as a warm-up. Use `pin` only when the teacher gives you an image you can
+   see. Follow any numbers, types, difficulty or topics the teacher asks
    for instead.
 4. Write questions and options in **the same language as the material**
    (usually Spanish). Keep accents and ñ as normal characters.
@@ -611,6 +774,20 @@ def _parse_row(row, warn):
                             f"must be blank for {qtype.code}. "
                             f"{qtype.correct_rule}")
         correct_json = json.dumps(list(range(len(opts))))
+    elif kind == CORRECT_ANSWERS:
+        answers = parse_answers_cell(raw_correct)
+        err = answers_error(answers)
+        if err:
+            raise _RowError("correct", raw_correct,
+                            f"{qtype.code} {err} {qtype.correct_rule}")
+        correct_json = json.dumps(answers, ensure_ascii=False)
+    elif kind == CORRECT_ZONES:
+        try:
+            cfg = parse_zones_cell(raw_correct)
+        except ValueError as e:
+            raise _RowError("correct", raw_correct,
+                            f"{qtype.code}: {e} {qtype.correct_rule}")
+        correct_json = json.dumps(cfg)
     else:
         if raw_correct:
             warn("correct", raw_correct,
@@ -637,6 +814,8 @@ def _parse_row(row, warn):
             warn("image_url", image_url,
                  "looks like a web page or share link, not a direct image "
                  "file; the image may not load.")
+    elif qtype.requires_image:
+        raise _RowError("image_url", "", f"{qtype.code} questions need an image.")
 
     return {
         "text": text,

@@ -24,7 +24,8 @@ TYPE_BRANCH = re.compile(
 # Files that must ask the registry instead of comparing type names
 NO_BRANCHING = ["game_manager.py", "main.py", "static/js/player.js",
                 "static/js/host.js", "static/js/assignment.js",
-                "templates/admin_quiz_editor.html"]
+                "templates/admin_quiz_editor.html",
+                "templates/admin_session_detail.html"]
 
 
 class Registry(unittest.TestCase):

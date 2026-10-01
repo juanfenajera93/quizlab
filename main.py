@@ -524,8 +524,8 @@ async def session_detail(
         except Exception:
             answers_raw = []
         total_ans = stat.total_answers
-        distribution = qtypes.get_kind(stat.question_type).stats_view(
-            answers_raw, total_ans)
+        stat_kind = qtypes.get_kind(stat.question_type)
+        distribution = stat_kind.stats_view(answers_raw, total_ans)
         stats_data.append({
             "question_index": stat.question_index,
             "question_text": stat.question_text[:60] + ("…" if len(stat.question_text) > 60 else ""),
@@ -534,6 +534,8 @@ async def session_detail(
             "total_answers": total_ans,
             "avg_time_seconds": stat.avg_time_seconds,
             "distribution": distribution,
+            "view": stat_kind.stats_view_kind,
+            "scored": stat_kind.scored,
         })
     return templates.TemplateResponse(
         "admin_session_detail.html",
@@ -999,8 +1001,9 @@ async def api_assignment_submit(code: str, request: Request,
         ans = answers[i] if i < len(answers) else None
         options = json.loads(q.options_json) if q.options_json else []
         qd = {"question_type": q.question_type, "options": options,
-              "correct_json": q.correct_json}
+              "correct_json": q.correct_json, "image_url": q.image_url}
         kind = qtypes.get_kind(q.question_type)
+        ans = kind.homework_answer(qd, ans)
         pts, is_correct = _score_answer(
             q.question_type, kind.homework_key(qd),
             ans if ans is not None else -1,
@@ -1491,6 +1494,14 @@ async def ws_player(websocket: WebSocket):
                 await game_manager.handle_wordcloud_answer(
                     room_code, player_id, wc_qid, data.get("text", "")
                 )
+
+            elif t == "submit" and player_id and room_code:
+                try:
+                    sub_qid = int(data.get("question_id", -1))
+                except (ValueError, TypeError):
+                    sub_qid = -1
+                await game_manager.handle_submit(
+                    room_code, player_id, sub_qid, data.get("value"))
 
             elif t == "reaction" and player_id and room_code:
                 await game_manager.broadcast_reaction(

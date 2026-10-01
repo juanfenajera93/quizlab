@@ -77,7 +77,7 @@
           <td><span class="badge">{{ s.question_type|upper }}</span></td>
           <td style="text-align:right">{{ s.total_answers }}</td>
           <td style="text-align:right">
-            {% if s.question_type not in ('poll', 'wordcloud') %}
+            {% if s.scored %}
               {% if s.total_answers > 0 %}
                 {{ "%.0f"|format(s.correct_count / s.total_answers * 100) }}%
               {% else %}—{% endif %}
@@ -87,11 +87,11 @@
             {% if s.avg_time_seconds > 0 %}{{ "%.1f"|format(s.avg_time_seconds) }}s{% else %}—{% endif %}
           </td>
           <td class="dist-cell">
-            {% if s.question_type == 'wordcloud' and s.distribution %}
+            {% if s.view == 'words' and s.distribution %}
               {% for w in s.distribution %}
               <span class="dist-word">{{ w.word }} <em>×{{ w.count }}</em></span>
               {% endfor %}
-            {% elif s.question_type in ('mc', 'tf', 'ms', 'poll') and s.distribution %}
+            {% elif s.view == 'bars' and s.distribution %}
               {% for d in s.distribution %}
               <span class="dist-bar-row">
                 <span class="dist-letter">{{ d.label }}</span>

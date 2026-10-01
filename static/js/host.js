@@ -685,7 +685,13 @@
   var hostHelpers = {
     pct: pct,
     paintDistribution: paintDistribution,
-    currentQuestion: function () { return currentQuestion; }
+    currentQuestion: function () { return currentQuestion; },
+    fit: function () { fitGameLayout(); },
+    // A reveal that draws the image itself (pin on image)
+    hideQuestionImage: function () {
+      var img = document.getElementById('q-image');
+      if (img) img.style.display = 'none';
+    }
   };
 
   function renderTeamStandings(teams) {

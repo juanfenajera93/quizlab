@@ -55,7 +55,11 @@ so a slow or blocked deploy shows where it stopped.
 3. Enter a quiz name and optional course tag (e.g. `ADM-3083`).
 4. Add questions one by one using the form on the right, or bulk-import via CSV.
 5. For each question you can set:
-   - Question type: multiple choice, true/false, multiple select, poll, ordering or word cloud
+   - Question type: multiple choice, true/false, multiple select, poll, ordering,
+     word cloud, short answer (several accepted answers; case, accents and
+     extra spaces ignored) or pin on image (click the picture to add circular
+     zones, drag to move, drag the edge handle to resize, double-click to delete;
+     points fall off with distance outside a zone)
    - Time limit: 10 / 20 / 30 seconds
    - Points: 100 / 200 / 500, or any custom value from 0 to 1000
    - An image (drag-and-drop upload or paste a URL)
@@ -77,7 +81,8 @@ so a slow or blocked deploy shows where it stopped.
 In the quiz editor, below the question list:
 
 - **Download CSV template**: header row plus one data-analytics example per
-  question type (`mc`, `tf`, `ms`, `poll`, `order`, `wordcloud`). UTF-8 with
+  question type (`mc`, `tf`, `ms`, `poll`, `order`, `wordcloud`, `short`,
+  `pin`). UTF-8 with
   BOM, **separated by semicolons (`;`)** so it opens straight into columns in
   Excel with Spanish regional settings.
 - **Download AI prompt**: a Markdown file (`quizlab_ai_prompt.md`) to give any
@@ -101,6 +106,8 @@ Format summary (letters A-F refer to `option_1`..`option_6`):
 | `poll` | 2-6 | blank |
 | `order` | 2-6, written in the correct order | blank |
 | `wordcloud` | none | blank (always 0 points) |
+| `short` | none | accepted answers separated by `\|`, e.g. `Mediana \| la mediana` (each ≤ 20 characters) |
+| `pin` | none | zones `x y r` in percent separated by `\|`, optional `falloff=F` and `aspect=A`, e.g. `50 17.5 5 \| falloff=1`; needs `image_url` |
 
 `time_limit`: whole seconds 5-120. `points`: whole number 0-1000.
 `image_url`: blank or a direct public `https://` link to an image file. The
@@ -114,11 +121,12 @@ guidance, default points and an example row per type) and the numeric limits.
 The template (`build_template_csv`), the AI prompt (`build_ai_prompt`) and
 the importer (`parse_csv`) are all generated from it.
 
-To add a question type, add a `QuestionType` entry there; the template, AI
-prompt and importer update automatically. The game engine
-(`game_manager._score_answer`), player/host JS and the editor UI still need
-their own support. `tests/test_csv_roundtrip.py` fails if a type's example
-answer is not scored as correct by the game engine.
+To add a question type: a `QuestionType` entry there (template, AI prompt
+and importer update automatically), a class in `qtypes.py` (scoring, reveal,
+review, homework, history: everything `game_manager.py` and `main.py` need)
+and an entry in `static/js/qtypes.js` (phone, projector, homework and editor
+UI). `tests/test_registry.py` fails if the three disagree or if a type's
+example row is not scored as correct.
 
 ### Tests
 

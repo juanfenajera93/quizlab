@@ -60,6 +60,23 @@ class Outcome:
         """The base points, no time factor (poll / word cloud participation)."""
         return {"points": self.base, "correct": True, "kind": "full"}
 
+    def near(self, proximity, distance):
+        """Close but not inside (pin on image): the full answer's points
+        (speed formula) times `proximity` (1 at the zone edge, 0 at the
+        falloff distance). `distance` is how far outside the nearest zone
+        the answer landed, in zone radii."""
+        full = self.full()
+        # round first: 0.6 - 0.65 style float noise must not cost a point
+        proximity = round(proximity, 6)
+        out = {"points": math.floor(full["points"] * proximity + 1e-9),
+               "correct": False, "kind": "near",
+               "proximity": round(proximity, 3), "distance": round(distance, 2),
+               "full_points": full["points"]}
+        for key in ("speed_factor", "time_taken"):
+            if key in full:
+                out[key] = full[key]
+        return out
+
     def partial(self, hits, parts):
         return {"points": math.floor(self.base * (hits / parts)),
                 "correct": False, "kind": "partial",

@@ -443,6 +443,10 @@
         return btn;
       },
       confirmButton: function () { return document.getElementById('ms-confirm-btn'); },
+      // A type that shows the image itself (pin on image) hides the usual one
+      hideImage: function () {
+        document.getElementById('player-q-image').style.display = 'none';
+      },
       hideConfirm: function () {
         var btn = document.getElementById('ms-confirm-btn');
         if (btn) btn.style.display = 'none';
@@ -889,12 +893,22 @@
     }
     var html = row(t('bd_base'), bd.base);
     var secs = typeof bd.time_taken === 'number' ? bd.time_taken.toFixed(1) : '—';
-    if (bd.kind === 'speed') {
-      var label = bd.speed_factor <= QLScore.SPEED_FLOOR
+    function speedLabel() {
+      if (typeof bd.speed_factor !== 'number') return t('bd_accuracy');
+      return bd.speed_factor <= QLScore.SPEED_FLOOR
         ? t('bd_speed_floor').replace('{s}', secs)
         : t('bd_speed').replace('{pct}', Math.round(bd.speed_factor * 100))
                        .replace('{s}', secs);
-      html += row(label, bd.question_points);
+    }
+    if (bd.kind === 'speed') {
+      html += row(speedLabel(), bd.question_points);
+    } else if (bd.kind === 'near') {
+      // Pin outside the zone: what it would have been worth inside (speed
+      // formula), then the share kept for landing that close
+      html += row(speedLabel() + ' · ' + t('bd_if_inside'), bd.full_points);
+      html += row(t('bd_near')
+        .replace('{d}', bd.distance.toFixed(1))
+        .replace('{pct}', Math.round(bd.proximity * 100)), bd.question_points);
     } else if (bd.kind === 'partial' && bd.hits > 0) {
       html += row(t('bd_partial').replace('{hits}', bd.hits)
                                  .replace('{parts}', bd.parts), bd.question_points);
