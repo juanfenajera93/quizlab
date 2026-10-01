@@ -85,6 +85,10 @@
            title="Header + one example per question type (UTF-8, separated by ;)">↓ Download CSV template</a>
         <a href="/admin/ai-prompt" class="btn btn-ghost btn-sm" download
            title="Give this file and your class material to any AI assistant to get questions in the template format">↓ Download AI prompt</a>
+        {% if quiz %}
+        <a href="/admin/quiz/{{ quiz.id }}/export.csv" class="btn btn-ghost btn-sm" download
+           title="This quiz as saved, in the template format (re-imports identically)">↓ Export to CSV</a>
+        {% endif %}
         <label class="btn btn-ghost btn-sm" style="cursor:pointer; margin:0">
           ↑ Import CSV
           <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="handleCSVImport(this)">

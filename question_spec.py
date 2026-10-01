@@ -8,12 +8,15 @@ Everything about the bulk-import format lives here:
   * numeric limits   — MAX_OPTIONS, POINTS_MIN/MAX, TIME_MIN/MAX
   * TEMPLATE_DELIMITER / ACCEPTED_DELIMITERS
 
-Three outputs are generated from those definitions, so they cannot drift
+Four outputs are generated from those definitions, so they cannot drift
 apart:
 
   * build_template_csv() — the downloadable CSV template (/admin/csv-template)
   * build_ai_prompt()    — the downloadable AI prompt (/admin/ai-prompt)
   * parse_csv()          — the importer + validation (/admin/import-csv)
+  * build_quiz_csv()     — an existing quiz in the template format
+                           (/admin/quiz/{id}/export.csv); parse_csv() reads
+                           it back to the same questions
 
 Adding a question type:
   1. a QuestionType entry here (with an example row and example_answer):
@@ -419,6 +422,8 @@ def answers_error(answers) -> Optional[str]:
     for a in answers:
         if not isinstance(a, str) or not a.strip():
             return "accepted answers cannot be empty."
+        if "|" in a:
+            return f"'{a.strip()}' contains |, which separates accepted answers."
         if len(a.strip()) > SHORT_MAX_LEN:
             return (f"'{a.strip()}' is longer than {SHORT_MAX_LEN} characters, "
                     f"the most a student can type.")
@@ -556,6 +561,87 @@ def build_template_csv() -> bytes:
     detects the encoding and shows accents correctly."""
     return _write_rows(t.example for t in QUESTION_TYPES.values()) \
         .encode("utf-8-sig")
+
+
+# ─── Export ──────────────────────────────────────────────────────────────────
+# The inverse of _parse_row: a saved question -> the template row that
+# imports back to it.
+
+_FORMULA_START = ("=", "+", "-", "@")
+
+
+def _safe_cell(text) -> str:
+    """Excel runs a cell that starts with = + - @ as a formula. A leading
+    space keeps it text; the importer strips it, so the round trip holds."""
+    text = "" if text is None else str(text)
+    return " " + text if text.startswith(_FORMULA_START) else text
+
+
+def _correct_cell(qtype: "QuestionType", correct_json: str, n_opts: int) -> str:
+    kind = qtype.correct_kind
+    if kind == CORRECT_SINGLE:
+        try:
+            idx = int(correct_json) if correct_json != "" else 0
+        except (TypeError, ValueError):
+            idx = 0
+        return LETTERS[idx] if 0 <= idx < len(LETTERS) else ""
+    if kind == CORRECT_MULTI:
+        try:
+            idx = json.loads(correct_json or "[]")
+        except (TypeError, ValueError):
+            idx = []
+        return ",".join(LETTERS[i] for i in sorted(set(idx))
+                        if isinstance(i, int) and 0 <= i < len(LETTERS))
+    if kind == CORRECT_ANSWERS:
+        try:
+            answers = json.loads(correct_json or "[]")
+        except (TypeError, ValueError):
+            answers = []
+        return " | ".join(str(a) for a in answers)
+    if kind == CORRECT_ZONES:
+        try:
+            return encode_zones_cell(json.loads(correct_json or "{}"))
+        except (TypeError, ValueError, KeyError):
+            return ""
+    if kind == CORRECT_SETTINGS:
+        try:
+            stored = json.loads(correct_json or "{}")
+        except (TypeError, ValueError):
+            stored = {}
+        settings = {st.name: stored.get(st.name, st.default) for st in qtype.settings}
+        return encode_settings_cell(settings)
+    return ""      # order (the options are in the right order) / none
+
+
+def question_row(q: dict) -> dict:
+    """One saved question ({question_type, text, options, correct_json,
+    time_limit, points, image_url}) as a template row."""
+    code = q.get("question_type") or DEFAULT_TYPE
+    qtype = QUESTION_TYPES.get(code)
+    options = [o for o in (q.get("options") or []) if str(o).strip()]
+    row = {
+        "question": _safe_cell(q.get("text", "")),
+        "type": code,
+        "time_limit": str(q.get("time_limit", "")),
+        "points": str(q.get("points", "")),
+        "image_url": q.get("image_url") or "",
+    }
+    if qtype is None:                     # unknown type: export what we have
+        row["correct"] = _safe_cell(q.get("correct_json", ""))
+    else:
+        if qtype.max_options:
+            options = options[:qtype.max_options]
+        row["correct"] = _safe_cell(_correct_cell(qtype, q.get("correct_json", ""),
+                                                  len(options)))
+    for name, opt in zip(OPTION_COLUMNS, options):
+        row[name] = _safe_cell(opt)
+    return row
+
+
+def build_quiz_csv(questions) -> bytes:
+    """A quiz in the template format (same header, ; separator, UTF-8 with
+    BOM), ready to edit in Excel and import again."""
+    return _write_rows(question_row(q) for q in questions).encode("utf-8-sig")
 
 
 # ─── AI prompt ───────────────────────────────────────────────────────────────

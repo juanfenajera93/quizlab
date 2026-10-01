@@ -322,6 +322,19 @@ class EndToEnd(unittest.TestCase):
                               (quiz_id,)).fetchall()
         self.assertEqual(rows, [(0,)])
 
+    def test_export_reimports_identically(self):
+        """Save every template example through the editor's endpoint, export
+        it over HTTP, import the export: the same questions come back."""
+        resp = self.opener.open(self.base + "/admin/csv-template")
+        imported = spec.parse_csv(resp.read()).questions
+        quiz_id = self._save({"name": "Exportación ñ/á", "questions": imported})["quiz_id"]
+        resp = self.opener.open(f"{self.base}/admin/quiz/{quiz_id}/export.csv")
+        self.assertIn("text/csv", resp.headers["Content-Type"])
+        self.assertIn("quizlab_Exportaci", resp.headers["Content-Disposition"])
+        exported = spec.parse_csv(resp.read())
+        self.assertEqual(exported.issues, [])
+        self.assertEqual(exported.questions, imported)
+
     def test_editor_uses_spec_point_limits(self):
         html = self.opener.open(self.base + "/admin/quiz/new").read().decode()
         self.assertIn(f'min="{spec.POINTS_MIN}" max="{spec.POINTS_MAX}"', html)
@@ -335,7 +348,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(resp.read().decode("utf-8"), spec.build_ai_prompt())
 
     def test_downloads_require_admin(self):
-        for path in ("/admin/csv-template", "/admin/ai-prompt"):
+        for path in ("/admin/csv-template", "/admin/ai-prompt", "/admin/quiz/1/export.csv"):
             with self.assertRaises(urllib.error.HTTPError) as cm:
                 urllib.request.urlopen(self.base + path)
             self.assertEqual(cm.exception.code, 401)

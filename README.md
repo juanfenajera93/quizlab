@@ -94,6 +94,11 @@ In the quiz editor, below the question list:
   and type, how `correct` is encoded, point and time ranges, image URL rules,
   examples, and a self-check list. The AI answers with a CSV in the template
   format.
+- **Export to CSV** (dashboard card, or the editor of a saved quiz): the quiz
+  in exactly this template format; edit it in Excel and import it again to get
+  the same questions back (`question_spec.build_quiz_csv` is the importer's
+  inverse). Cells that start with `=`, `+`, `-` or `@` get a leading space so
+  Excel does not run them as formulas; the importer strips it.
 - **Import CSV**: accepts `;` or `,` separators (auto-detected from the header
   row) and UTF-8 or Windows-1252 (Excel's plain "CSV" save). Rows with errors
   are skipped and listed with their row number, column, value and reason; rows

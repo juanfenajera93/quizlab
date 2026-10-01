@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -1157,6 +1158,34 @@ async def ai_prompt(request: Request):
         content=question_spec.build_ai_prompt().encode("utf-8"),
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=quizlab_ai_prompt.md"},
+    )
+
+
+@app.get("/admin/quiz/{quiz_id}/export.csv")
+async def export_quiz_csv(request: Request, quiz_id: int,
+                          db: Session = Depends(get_session)):
+    """The quiz in the CSV template format; importing it gives back the same
+    questions (question_spec.build_quiz_csv is the importer's inverse)."""
+    if not request.session.get("admin"):
+        raise HTTPException(status_code=401)
+    quiz = db.get(Quiz, quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404)
+    questions = db.exec(
+        select(Question).where(Question.quiz_id == quiz_id).order_by(Question.position)
+    ).all()
+    rows = [{"text": q.text, "question_type": q.question_type,
+             "options": json.loads(q.options_json) if q.options_json else [],
+             "correct_json": q.correct_json, "time_limit": q.time_limit,
+             "points": q.points, "image_url": q.image_url} for q in questions]
+    slug = "".join(c if c.isalnum() else "_" for c in quiz.name).strip("_")[:40] or "quiz"
+    filename = f"quizlab_{slug}.csv"
+    return Response(
+        content=question_spec.build_quiz_csv(rows),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f"attachment; filename=\"{filename}\"; "
+                 f"filename*=UTF-8''{urllib.parse.quote(filename)}"},
     )
 
 
