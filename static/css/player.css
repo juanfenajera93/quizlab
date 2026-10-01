@@ -623,7 +623,13 @@ html, body {
   color: var(--text-muted);
 }
 
-/* ── Fix 7: Final screen — viewport-contained ── */
+/* ── Final screen ──
+   A fixed overlay that scrolls as one page. It used to be overflow:hidden
+   with the top-players box as its only flexible child: once the review was
+   appended below, flexbox shrank that box (min-height:0) to nothing, leaving
+   the "Top jugadores" heading with no rows, and the review itself was
+   clipped with no way to scroll to it. Every child now keeps its natural
+   height and the overlay itself scrolls (touch and wheel). */
 .player-final {
   display: none;
   position: fixed;
@@ -632,21 +638,26 @@ html, body {
   flex-direction: column;
   align-items: center;
   background: var(--bg);
-  padding: 24px 20px 16px;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom, 0px));
   text-align: center;
   gap: 10px;
   z-index: 200;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
 }
 
 .player-final.active { display: flex; }
 
-.final-emoji { font-size: 44px; flex-shrink: 0; }
+.player-final > * { flex-shrink: 0; }
+
+.final-emoji { font-size: 44px; }
 
 .final-title {
   font-size: 40px;
   line-height: 1;
-  flex-shrink: 0;
 }
 
 .final-rank-num {
@@ -654,7 +665,6 @@ html, body {
   font-size: 68px;
   color: var(--lime);
   line-height: 1;
-  flex-shrink: 0;
 }
 
 .final-rank-label {
@@ -663,36 +673,27 @@ html, body {
   font-family: 'Barlow Condensed', sans-serif;
   font-weight: 700;
   text-transform: uppercase;
-  flex-shrink: 0;
 }
 
 .final-score {
   font-family: 'Syne Mono', monospace;
   font-size: 20px;
   color: var(--text);
-  flex-shrink: 0;
 }
 
-/* Fix 7: leaderboard scrolls within bounded box */
 .final-mini-lb {
   width: 100%;
-  flex: 1;
+  max-width: 480px;
   display: flex;
   flex-direction: column;
-  min-height: 0;
 }
 
+/* At most 8 rows, so no inner scroll box: a nested scroller on a phone
+   traps the swipe that should move the page. */
 .final-mini-lb h3 {
   font-size: 14px;
   margin-bottom: 8px;
   color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.final-mini-lb-scroll {
-  flex: 1;
-  overflow-y: auto;
-  max-height: 35vh;
 }
 
 .mini-lb-row {
@@ -732,8 +733,7 @@ html, body {
 }
 
 .final-play-again {
-  flex-shrink: 0;
-  padding-bottom: 4px;
+  padding: 8px 0 4px;
 }
 
 /* ── Reconnect banner ── */
@@ -1036,7 +1036,7 @@ html, body {
 .final-review {
   width: 100%;
   max-width: 480px;
-  margin-top: 24px;
+  margin-top: 14px;
   text-align: left;
 }
 

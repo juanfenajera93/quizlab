@@ -889,6 +889,8 @@
 
     var list = document.getElementById('final-mini-lb-list');
     list.innerHTML = '';
+    var lbSection = document.querySelector('.final-mini-lb');
+    if (lbSection) lbSection.style.display = lb.length ? '' : 'none';
     lb.slice(0, 8).forEach(function (entry, i) {
       var row = document.createElement('div');
       row.className = 'mini-lb-row';
