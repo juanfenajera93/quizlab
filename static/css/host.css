@@ -11,6 +11,11 @@
 .view { display: none; }
 .view.active { display: flex; flex-direction: column; flex: 1; }
 
+/* The game view is exactly one viewport tall: on a projector nothing may
+   scroll off screen. host.js fitGameLayout() shrinks fonts if the image
+   (which shrinks first, see .q-image) was not enough. */
+#game.view.active { flex: 0 0 auto; height: 100vh; height: 100dvh; overflow: hidden; }
+
 /* ── Lobby ── */
 /* The theme + EN/ES toggles are fixed at the top-right of every page
    (base.css: 2 × 40px buttons, 16px from the edge). Both host headers
@@ -271,8 +276,10 @@
 .game-body {
   display: grid;
   grid-template-columns: 1fr 300px;
+  grid-template-rows: minmax(0, 1fr);   /* never grow past the viewport */
   gap: 0;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -283,6 +290,7 @@
   flex-direction: column;
   position: relative;
   overflow: hidden;
+  min-height: 0;
 }
 
 .q-bg-num {
@@ -306,6 +314,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .q-text {
@@ -316,8 +325,11 @@
   text-transform: uppercase;
   letter-spacing: -0.02em;
   margin-bottom: 20px;
-  max-width: 700px;
+  max-width: 900px;
+  flex-shrink: 0;
 }
+
+.q-image.fit-hidden { display: none !important; }
 
 .q-image {
   /* Viewport-relative so it stays readable when projected but can't push
@@ -327,9 +339,14 @@
   width: auto;
   height: auto;
   object-fit: contain;
+  object-position: left center;
   border-radius: 8px;
   margin-bottom: 20px;
   border: 1px solid var(--border);
+  /* First thing to give way when text + options need the room */
+  flex: 0 1 auto;
+  min-height: 72px;
+  align-self: flex-start;
 }
 
 /* ── Area 5 + 6 + 7: Answer tiles grid ── */
@@ -338,8 +355,9 @@
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-top: auto;
-  max-width: 640px;
+  max-width: 960px;
   align-items: stretch;
+  flex-shrink: 0;
 }
 
 .answer-tile {
@@ -392,7 +410,119 @@
   box-shadow: 0 0 0 3px #fff, 0 0 0 6px currentColor;
 }
 
-.answer-tile.wrong { opacity: 0.25; }
+/* Dimmed, not faded out: the count on a wrong option must stay readable
+   from the back of the room. */
+.answer-tile.wrong { filter: grayscale(0.85) brightness(0.45); }
+
+/* ── Reveal stats on each option ── */
+.answer-tile { position: relative; overflow: hidden; }
+.answer-tile .tile-text { flex: 1; min-width: 0; }
+.tile-stat { display: none; }
+.answer-tile.has-stats .tile-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+  font-family: 'Syne Mono', monospace;
+}
+.answer-tile.correct .tile-stat::before {
+  content: '✓';
+  align-self: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 1.3em;
+  margin-right: 2px;
+}
+.tile-count { font-size: 26px; line-height: 1; }
+.tile-pct { font-size: 14px; opacity: 0.85; }
+.tile-bar {
+  display: none;
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.answer-tile.has-stats .tile-bar { display: block; }
+.tile-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.85);
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.answer-tile[data-idx="2"] .tile-bar-fill { background: rgba(0, 0, 0, 0.55); }
+
+/* ── Ordering reveal: the correct sequence, numbered ── */
+.order-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  max-width: 960px;
+  flex-shrink: 0;
+}
+.order-reveal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.order-reveal-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+.order-reveal-summary {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+}
+.order-reveal-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.order-reveal-num {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--lime);
+  color: #111110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Syne Mono', monospace;
+  font-size: 20px;
+}
+.order-reveal-text {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+}
+.order-reveal-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+  font-family: 'Syne Mono', monospace;
+  color: var(--text-muted);
+}
+.order-reveal-stat .tile-count { color: var(--text); }
+.order-reveal-row.slide-up { animation: slide-up-tile 0.3s ease both; }
 
 /* ── Area 6: Slide-up animation for tiles appearing in answer phase ── */
 @keyframes slide-up-tile {
@@ -412,13 +542,16 @@
   flex-direction: column;
   gap: 0;
   background: var(--surface);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chart-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 4px 12px;
   margin-bottom: 20px;
 }
 
@@ -451,7 +584,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  flex: 1;
+  flex-shrink: 0;
 }
 
 .bar-row {
@@ -494,7 +627,7 @@
   font-family: 'Syne Mono', monospace;
   font-size: 14px;
   color: var(--text-muted);
-  width: 24px;
+  min-width: 24px;
   text-align: right;
 }
 
@@ -502,6 +635,7 @@
 .reveal-leaderboard {
   margin-top: 24px;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1006,6 +1140,13 @@ body:has(.host-wrap) #theme-toggle {
 body.projector-mode .q-text { font-size: 56px !important; line-height: 1.15; }
 body.projector-mode .tile-text { font-size: 30px !important; }
 body.projector-mode .tile-letter { font-size: 34px !important; }
+body.projector-mode .tile-count { font-size: 36px; }
+body.projector-mode .tile-pct { font-size: 20px; }
+body.projector-mode .tile-bar { height: 8px; }
+body.projector-mode .order-reveal-text { font-size: 30px; }
+body.projector-mode .order-reveal-num { width: 42px; height: 42px; font-size: 24px; }
+body.projector-mode .order-reveal-title,
+body.projector-mode .order-reveal-summary { font-size: 28px; }
 body.projector-mode .bar-letter { font-size: 24px !important; }
 body.projector-mode .bar-count { font-size: 22px !important; }
 body.projector-mode .chart-title,

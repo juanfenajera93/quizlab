@@ -443,6 +443,15 @@ def _load_player_state(player: "Player", data: dict) -> None:
     }
 
 
+def _final_answer(player: "Player", qi: int):
+    """The answer reveal scores for this player: the locked answer, else the
+    last live selection (ms not confirmed, order dragged but not confirmed)."""
+    ans = player.answers.get(qi)
+    if ans is None:
+        ans = player.selections.get(qi)
+    return ans
+
+
 class GameManager:
     def __init__(self):
         self.sessions: Dict[str, GameSession] = {}
@@ -1348,7 +1357,18 @@ class GameManager:
             "correct_index": correct_index,
             "correct_json": scoring_correct_json,
             "leaderboard": session.get_leaderboard()[:5],
+            "distribution": self._reveal_distribution(session),
         }
+        if q_type == "ms":
+            try:
+                host_reveal["correct_indices"] = sorted(
+                    i for i in json.loads(correct_json) if isinstance(i, int))
+            except (ValueError, TypeError):
+                host_reveal["correct_indices"] = []
+        elif q_type == "order":
+            # The host was sent the shuffled list; the correct sequence is the
+            # options as the teacher wrote them.
+            host_reveal["correct_options"] = list(q.get("options", []))
         if session.team_count:
             host_reveal["teams"] = session.get_team_leaderboard()
         if q_type == "wordcloud":
@@ -1359,6 +1379,55 @@ class GameManager:
                     freq_dict[key] = freq_dict.get(key, 0) + 1
             host_reveal["words"] = freq_dict
         return host_reveal
+
+    def _reveal_distribution(self, session: GameSession) -> dict:
+        """How the room answered the current question, for the host reveal.
+
+        Built from each player's final answer (the same value reveal_answer
+        scored), never from the live answer_counts stream: that array means
+        something different per type (locked answers for mc/tf/poll, live
+        unconfirmed selections for ms, a "submitted" total in slot 0 for
+        order) and missed answers that arrived after the host tab painted
+        its chart. Deterministic, so a host reconnect repaints the same
+        numbers.
+
+        counts:   per option, players whose answer includes it (mc/tf/poll/ms)
+        answered: players with any answer; percentages use this denominator
+        players:  everyone in the room
+        order:    full_correct, plus in_place[i] = players who put original
+                  item i in its correct position
+        """
+        q = session.current_question or {}
+        qi = session.current_question_index
+        q_type = q.get("question_type", "mc")
+        n_opts = len(q.get("options", []))
+        answers = [a for a in (_final_answer(p, qi) for p in session.players.values())
+                   if a is not None and a != -1 and a != ""]
+        out: dict = {"answered": len(answers), "players": len(session.players)}
+        if q_type in ("mc", "tf", "poll", "ms"):
+            counts = [0] * n_opts
+            for a in answers:
+                picked = a if isinstance(a, list) else [a]
+                for i in set(x for x in picked if isinstance(x, int)):
+                    if 0 <= i < n_opts:
+                        counts[i] += 1
+            out["counts"] = counts
+        elif q_type == "order":
+            perm = session.order_correct.get(qi) or list(range(n_opts))
+            in_place = [0] * n_opts
+            full = 0
+            for a in answers:
+                if not isinstance(a, list) or len(a) != n_opts:
+                    continue
+                hits = [a[j] == perm[j] for j in range(n_opts)]
+                for j, hit in enumerate(hits):
+                    if hit:
+                        in_place[j] += 1
+                if all(hits):
+                    full += 1
+            out["full_correct"] = full
+            out["in_place"] = in_place
+        return out
 
     def _phase_info(self, session: GameSession) -> dict:
         """Current phase and remaining time for the active question."""

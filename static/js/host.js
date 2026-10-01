@@ -22,7 +22,6 @@
   // `connected` to every host message that can move either number.
   var answerProgress = { answered: 0, connected: 0 };
   var answersRevealed = false;
-  var latestCounts = [];
   var RECONNECT_DELAYS = [2000, 4000, 8000, 8000, 8000];
   var reconnectAttempts = 0;
   var reconnectTimeout = null;
@@ -221,20 +220,16 @@
         qd.time_limit = msg.answer_time_remaining || 0;
       }
       onQuestion(qd);
-      latestCounts = msg.answer_counts || [];
       if (qd.question_type === 'wordcloud' && msg.words) {
         onWordcloudUpdate({ words: msg.words });
       }
     } else if (msg.state === 'reveal') {
       qd.read_time = 0;
       onQuestion(qd);                        // rebuild layout + answer tiles
-      latestCounts = msg.answer_counts || [];
-      if (msg.reveal) onReveal(msg.reveal, true);  // instant repaint, no choreography
+      // Instant repaint, no choreography. The reveal payload carries the
+      // distribution, so the numbers match what the room saw before.
+      if (msg.reveal) onReveal(msg.reveal, true);
       revealSent = true;
-      answersRevealed = true;
-      updateChart(latestCounts);
-      var tc = document.getElementById('timer-container');
-      if (tc) tc.style.visibility = 'hidden';
     }
   }
 
@@ -341,7 +336,6 @@
     revealSent = false;
     answerCounts = new Array((msg.options || []).length).fill(0);
     answersRevealed = false;
-    latestCounts = [];
     inReadPhase = true;
     renderedWordCount = 0;
     lastTickSecond = -1;
@@ -364,7 +358,8 @@
     var qImg = document.getElementById('q-image');
     // A dead image URL (e.g. a lost /uploads/ file) hides itself instead of
     // showing a broken-image icon on the projector.
-    qImg.onerror = function () { qImg.style.display = 'none'; };
+    qImg.onerror = function () { qImg.style.display = 'none'; fitGameLayout(); };
+    qImg.onload = function () { fitGameLayout(); };
     if (msg.image_url) {
       qImg.src = msg.image_url;
       qImg.style.display = 'block';
@@ -410,6 +405,7 @@
     } else {
       enterAnswerPhase(msg.time_limit);
     }
+    fitGameLayout();
   }
 
   // ── Live points counter ────────────────────────────────────────
@@ -533,20 +529,75 @@
       tile.className = 'answer-tile slide-up';
       tile.dataset.idx = i;
       tile.style.animationDelay = (i * 60) + 'ms';
+      // tile-stat / tile-bar stay empty until the reveal fills them
       tile.innerHTML =
         '<span class="tile-letter">' + (letters[i] || String(i + 1)) + '</span>' +
-        '<span class="tile-text">' + escapeHtml(String(opt)) + '</span>';
+        '<span class="tile-text">' + escapeHtml(String(opt)) + '</span>' +
+        '<span class="tile-stat"></span>' +
+        '<span class="tile-bar"><span class="tile-bar-fill"></span></span>';
       tiles.appendChild(tile);
     });
+    fitGameLayout();
   }
 
+  // Live answer_counts only move the "answered / connected" counter. The
+  // per-option numbers are drawn once, at reveal, from the server's
+  // distribution (see paintDistribution).
   function onAnswerCounts(msg) {
-    latestCounts = msg.counts;
     updateAnswerProgress(msg);
-    if (answersRevealed) {
-      updateChart(latestCounts);
+  }
+
+  // ── Fit the question to the screen ─────────────────────────────
+  // The game view is exactly one viewport tall (no page scroll on a
+  // projector). The image shrinks first (CSS: flex-shrink, min-height 0);
+  // if text alone still overflows, step the question and tile fonts down.
+  function fitGameLayout() {
+    // .q-content, not .q-area: the decorative background number is
+    // positioned past q-area's bottom edge and would always read as overflow.
+    var area = document.querySelector('.q-content');
+    var qText = document.getElementById('q-text');
+    if (!area || !qText) return;
+    var tileTexts = document.querySelectorAll('#answer-tiles .tile-text, #answer-tiles .order-reveal-text');
+    // 'important' because projector mode sizes these with !important
+    function setSize(el, px) {
+      if (px) el.style.setProperty('font-size', px + 'px', 'important');
+      else el.style.removeProperty('font-size');
+    }
+    setSize(qText, 0);
+    tileTexts.forEach(function (el) { setSize(el, 0); });
+    var qBase = parseFloat(getComputedStyle(qText).fontSize) || 42;
+    var tBase = tileTexts.length ? (parseFloat(getComputedStyle(tileTexts[0]).fontSize) || 18) : 18;
+    // Layout boxes, not scrollHeight: the tiles' slide-up animation starts
+    // at translateY(20px) and transforms count toward scrollHeight.
+    function overflows() {
+      var bottom = 0;
+      for (var i = 0; i < area.children.length; i++) {
+        var c = area.children[i];
+        if (c.offsetParent === null) continue;          // display:none
+        bottom = Math.max(bottom, c.offsetTop + c.offsetHeight);
+      }
+      return bottom > area.clientHeight + 1;
+    }
+    var img = document.getElementById('q-image');
+    if (img) img.classList.remove('fit-hidden');
+    for (var scale = 0.95; overflows() && scale > 0.6; scale -= 0.05) {
+      setSize(qText, Math.round(qBase * scale));
+      tileTexts.forEach(function (el) { setSize(el, Math.round(tBase * scale)); });
+    }
+    // Last resort (e.g. 6 long ordering items + image on a 720p beamer):
+    // drop the image rather than cut off answers.
+    if (overflows() && img && img.style.display !== 'none') {
+      img.classList.add('fit-hidden');
+      setSize(qText, 0);
+      tileTexts.forEach(function (el) { setSize(el, 0); });
+      for (scale = 0.95; overflows() && scale > 0.6; scale -= 0.05) {
+        setSize(qText, Math.round(qBase * scale));
+        tileTexts.forEach(function (el) { setSize(el, Math.round(tBase * scale)); });
+      }
     }
   }
+
+  window.addEventListener('resize', function () { fitGameLayout(); });
 
   // Choreographed reveal: freeze → beat of suspense → correct answer pulses
   // while wrong answers fade → leaderboard slides in with rank-change FLIP.
@@ -559,7 +610,13 @@
     if (timerC) timerC.classList.remove('urgent-ring');
 
     var qType = msg.question_type || 'mc';
-    var correctIdx = msg.correct_index;
+    answersRevealed = true;
+    revealSent = true;
+    inReadPhase = false;
+    var bar = document.getElementById('read-phase-bar');
+    if (bar) bar.classList.remove('visible');
+    var tcEl = document.getElementById('timer-container');
+    if (tcEl) tcEl.style.visibility = 'hidden';
 
     // If tiles haven't been built yet (e.g., reveal during read phase), build them now
     var tiles = document.getElementById('answer-tiles');
@@ -574,19 +631,24 @@
     function paintTiles() {
       if (qType === 'wordcloud') {
         renderWordcloudReveal(msg, instant);
-        return;
+      } else if (qType === 'order') {
+        renderOrderReveal(msg, instant);
+      } else {
+        var correct = correctSet(msg);
+        document.querySelectorAll('.answer-tile').forEach(function (tile) {
+          var idx = parseInt(tile.dataset.idx);
+          if (!correct) return;                   // poll: no right answer
+          if (correct.indexOf(idx) !== -1) {
+            tile.classList.add('correct');
+            if (!instant) tile.classList.add('correct-pulse');
+          } else {
+            tile.classList.add('wrong');
+          }
+        });
+        paintDistribution(msg, instant);
       }
-      document.querySelectorAll('.answer-tile').forEach(function (tile) {
-        var idx = parseInt(tile.dataset.idx);
-        if (qType === 'poll' || qType === 'order') {
-          tile.style.opacity = '1';
-        } else if (idx === correctIdx) {
-          tile.classList.add('correct');
-          if (!instant) tile.classList.add('correct-pulse');
-        } else {
-          tile.classList.add('wrong');
-        }
-      });
+      paintChart(msg);
+      fitGameLayout();
       if (!instant) playReveal();
     }
 
@@ -646,6 +708,82 @@
 
     var wordFeed = document.getElementById('word-feed');
     if (wordFeed) wordFeed.style.display = 'none';
+  }
+
+  // Option indices that are correct for the revealed question, or null when
+  // nothing is correct (poll). ms reads its full set from the payload.
+  function correctSet(msg) {
+    var qType = msg.question_type || 'mc';
+    if (qType === 'poll') return null;
+    if (qType === 'ms') {
+      if (Array.isArray(msg.correct_indices)) return msg.correct_indices;
+      try { return JSON.parse(msg.correct_json || '[]'); } catch (e) { return []; }
+    }
+    return [msg.correct_index];
+  }
+
+  function pct(n, d) { return d > 0 ? Math.round(n / d * 100) : 0; }
+
+  // Count + percentage + bar on every option tile. Percent of the students
+  // who answered (an ms option's share can exceed one per student, so
+  // these do not have to add up to 100).
+  function paintDistribution(msg, instant) {
+    var dist = msg.distribution || {};
+    var counts = dist.counts || [];
+    var answered = dist.answered || 0;
+    document.querySelectorAll('.answer-tile').forEach(function (tile) {
+      var idx = parseInt(tile.dataset.idx);
+      var n = counts[idx] || 0;
+      var p = pct(n, answered);
+      var stat = tile.querySelector('.tile-stat');
+      if (stat) {
+        stat.innerHTML = '<span class="tile-count">' + n + '</span>' +
+                         '<span class="tile-pct">' + p + '%</span>';
+      }
+      tile.classList.add('has-stats');
+      var fill = tile.querySelector('.tile-bar-fill');
+      if (fill) {
+        if (instant) fill.style.transition = 'none';
+        fill.style.width = p + '%';
+      }
+    });
+  }
+
+  // Ordering: the shuffled tiles are replaced by the correct sequence,
+  // numbered 1..n, each with how many students had that item in place.
+  function renderOrderReveal(msg, instant) {
+    var tiles = document.getElementById('answer-tiles');
+    var dist = msg.distribution || {};
+    var items = msg.correct_options || (currentQuestion ? currentQuestion.options : []) || [];
+    var inPlace = dist.in_place || [];
+    var answered = dist.answered || 0;
+    tiles.innerHTML = '';
+    tiles.className = 'order-reveal';
+
+    var head = document.createElement('div');
+    head.className = 'order-reveal-head';
+    head.innerHTML =
+      '<span class="order-reveal-title">' + escapeHtml(t('order_correct_title')) + '</span>' +
+      '<span class="order-reveal-summary">' +
+        escapeHtml(t('order_full_correct')
+          .replace('{n}', dist.full_correct || 0).replace('{m}', answered)) +
+      '</span>';
+    tiles.appendChild(head);
+
+    items.forEach(function (text, i) {
+      var row = document.createElement('div');
+      row.className = 'order-reveal-row' + (instant ? '' : ' slide-up');
+      if (!instant) row.style.animationDelay = (i * 90) + 'ms';
+      var n = inPlace[i] || 0;
+      row.innerHTML =
+        '<span class="order-reveal-num">' + (i + 1) + '</span>' +
+        '<span class="order-reveal-text">' + escapeHtml(String(text)) + '</span>' +
+        '<span class="order-reveal-stat" title="' + escapeHtml(t('order_in_place').replace('{n}', n)) + '">' +
+          '<span class="tile-count">' + n + '</span>' +
+          '<span class="tile-pct">' + pct(n, answered) + '%</span>' +
+        '</span>';
+      tiles.appendChild(row);
+    });
   }
 
   function renderTeamStandings(teams) {
@@ -793,8 +931,6 @@
   function triggerReveal() {
     if (revealSent || inReadPhase) return;
     revealSent = true;
-    answersRevealed = true;
-    updateChart(latestCounts);
     send({ type: 'reveal' });
   }
 
@@ -815,7 +951,9 @@
     }
 
     if (wordFeed) wordFeed.style.display = 'none';
-    barRows.style.display = '';
+    // Ordering has no per-option choice to chart; its reveal shows
+    // per-item "in place" counts on the correct sequence instead.
+    barRows.style.display = qType === 'order' ? 'none' : '';
     if (chartTitle) chartTitle.textContent = t('live_answers');
 
     barRows.innerHTML = '';
@@ -848,15 +986,30 @@
     el.classList.toggle('all-in', allIn);
   }
 
-  function updateChart(counts) {
-    var total = counts.reduce(function (a, b) { return a + b; }, 0);
-    counts.forEach(function (count, i) {
-      var row = document.querySelector('.bar-row[data-opt="' + i + '"]');
-      if (!row) return;
-      var pct = total > 0 ? (count / total * 100) : 0;
-      row.querySelector('.bar-fill').style.width = pct.toFixed(1) + '%';
-      row.querySelector('.bar-count').textContent = count;
-    });
+  // Side chart at reveal: same numbers and denominator as the tiles.
+  function paintChart(msg) {
+    var dist = msg.distribution || {};
+    var title = document.querySelector('.chart-title');
+    var barRows = document.querySelector('.bar-rows');
+    if ((msg.question_type || 'mc') === 'wordcloud') return;
+    if (title) title.textContent = t('results');
+    var counts = dist.counts;
+    if (!counts) {
+      // order: the per-item numbers live on the reveal list itself
+      if (barRows) barRows.style.display = 'none';
+    } else {
+      counts.forEach(function (count, i) {
+        var row = document.querySelector('.bar-row[data-opt="' + i + '"]');
+        if (!row) return;
+        row.querySelector('.bar-fill').style.width = pct(count, dist.answered) + '%';
+        row.querySelector('.bar-count').textContent = count;
+      });
+    }
+    var el = document.getElementById('answer-progress');
+    if (el && typeof dist.answered === 'number') {
+      el.textContent = t('reveal_answered')
+        .replace('{n}', dist.answered).replace('{m}', dist.players);
+    }
   }
 
   // FLIP-animated leaderboard: rows that were already on the board slide from
@@ -964,8 +1117,6 @@
   window.hostStartGame = function () { ensureAudio(); send({ type: 'start_game' }); };
   window.hostReveal    = function () { triggerReveal(); };
   window.hostNext      = function () {
-    answersRevealed = true;
-    updateChart(latestCounts);
     send({ type: 'next_question' });
   };
   window.hostStopQuiz  = function () {
