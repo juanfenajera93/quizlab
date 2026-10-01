@@ -40,6 +40,7 @@ Then open [http://localhost:8000](http://localhost:8000) — you'll be redirecte
 | `DB_CONNECT_TIMEOUT` | Seconds to wait for the database connection at startup | `10` |
 | `MIGRATION_LOCK_TIMEOUT` | Postgres `lock_timeout` for startup migrations | `5s` |
 | `MIGRATION_STATEMENT_TIMEOUT` | Postgres `statement_timeout` for startup migrations | `60s` |
+| `APP_TIMEZONE` | Time zone deadlines are typed in and all dates are shown in (stored as UTC) | `America/Guayaquil` |
 
 "Production" means `DATABASE_URL` points at Postgres. There, QuizLab refuses
 to start if `ADMIN_PASSWORD` or `SECRET_KEY` is missing, instead of falling

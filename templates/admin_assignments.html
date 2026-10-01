@@ -23,8 +23,9 @@
   <form method="post" action="/admin/quiz/{{ quiz.id }}/assignments"
         style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:32px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
     <div class="field" style="margin:0">
-      <label>Fecha límite (opcional)</label>
-      <input type="datetime-local" name="deadline">
+      <label>Fecha límite (opcional, hora de Ecuador)</label>
+      <input type="datetime-local" name="deadline" title="{{ tz_label }}">
+      <small style="color:var(--text-muted);font-size:12px">{{ tz_label }}</small>
     </div>
     <div class="field" style="margin:0">
       <label>Clase (opcional)</label>
@@ -61,7 +62,7 @@
             <button class="btn btn-ghost btn-sm" onclick="copyLink('{{ a.code }}', this)">Copiar enlace</button>
           </td>
           <td>{{ a.class_name or '—' }}</td>
-          <td>{{ a.deadline.strftime('%d %b %Y %H:%M') if a.deadline else 'Sin límite' }}</td>
+          <td>{{ a.deadline|local('%d %b %Y %H:%M') if a.deadline else 'Sin límite' }}</td>
           <td style="text-align:right">{{ a.submissions }}</td>
           <td style="text-align:right">
             <a href="/admin/assignment/{{ a.id }}" class="btn btn-ghost btn-sm">Resultados</a>

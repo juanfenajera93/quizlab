@@ -35,7 +35,7 @@
           <span class="quiz-stat text-muted">{{ quiz.play_count }} played</span>
           {% endif %}
           {% if quiz.last_played %}
-          <span class="quiz-stat text-muted">Last played {{ quiz.last_played.strftime('%b %d') }}</span>
+          <span class="quiz-stat text-muted">Last played {{ quiz.last_played|local('%b %d') }}</span>
           {% endif %}
         </div>
       </div>

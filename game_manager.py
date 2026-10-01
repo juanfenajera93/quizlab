@@ -6,13 +6,14 @@ import random
 import string
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List, Optional, Any
 from fastapi import WebSocket
 from sqlmodel import Session, select
 
 from database import engine
 from models import LiveSession, LivePlayer, Quiz, Question
+from timeutil import as_utc, utc_now
 
 logger = logging.getLogger("quizlab.game")
 
@@ -111,8 +112,8 @@ class GameSession:
         self.answer_phase_start_time: Optional[float] = None
         self.state = "lobby"
         self.answer_counts: List[int] = []
-        self.last_activity = datetime.utcnow()
-        self.created_at = datetime.utcnow()
+        self.last_activity = utc_now()
+        self.created_at = utc_now()
         # For "order" type: store the correct ordering to expect from players
         self.order_correct: Dict[int, list] = {}
         # Analytics
@@ -170,7 +171,7 @@ class GameSession:
 
     def touch(self):
         """Mark the session active so the cleanup loop doesn't collect it."""
-        self.last_activity = datetime.utcnow()
+        self.last_activity = utc_now()
 
     @property
     def questions(self) -> List[dict]:
@@ -616,10 +617,10 @@ class GameManager:
                 live_rows = db.exec(select(LiveSession)).all()
                 if not live_rows:
                     return
-                cutoff = datetime.utcnow() - LIVE_SESSION_MAX_AGE
+                cutoff = utc_now() - LIVE_SESSION_MAX_AGE
                 restored = 0
                 for row in live_rows:
-                    if row.last_activity < cutoff:
+                    if as_utc(row.last_activity) < cutoff:
                         logger.info("room %s: skipped rehydration (stale since %s)",
                                     row.room_code, row.last_activity.isoformat(timespec="seconds"))
                         for p in db.exec(select(LivePlayer)
@@ -640,8 +641,8 @@ class GameManager:
                     session = GameSession(row.room_code, quiz_data, None)
                     session.state = row.state
                     session.current_question_index = row.current_question_index
-                    session.created_at = row.created_at
-                    session.last_activity = row.last_activity
+                    session.created_at = as_utc(row.created_at)
+                    session.last_activity = as_utc(row.last_activity)
                     _load_session_state(session, json.loads(row.state_json or "{}"))
 
                     player_rows = db.exec(
@@ -1935,7 +1936,7 @@ class GameManager:
         })
 
     def cleanup_old_sessions(self):
-        cutoff = datetime.utcnow() - timedelta(hours=2)
+        cutoff = utc_now() - LIVE_SESSION_MAX_AGE
         to_remove = [
             code
             for code, s in self.sessions.items()

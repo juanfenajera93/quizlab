@@ -38,10 +38,14 @@
       $('hw-quiz-name').textContent = data.quiz_name + ' · ' +
         data.question_count + ' ' + t('questions', 'preguntas');
       if (data.deadline) {
-        var dl = new Date(data.deadline);
+        // The server's Ecuador wall-clock text, not the browser's own zone:
+        // the deadline is the same instant for everyone.
         var el = $('hw-deadline');
         el.style.display = '';
-        el.textContent = t('hw_deadline', 'Fecha límite') + ': ' + dl.toLocaleString();
+        el.textContent = t('hw_deadline', 'Fecha límite') + ': ' +
+          (data.deadline_display
+            ? data.deadline_display + ' (' + t('hw_ecuador_time', 'hora de Ecuador') + ')'
+            : new Date(data.deadline).toLocaleString());
       }
       if (data.closed) { fail(t('hw_closed', 'Esta tarea ya cerró.')); return; }
       if (data.has_roster) {

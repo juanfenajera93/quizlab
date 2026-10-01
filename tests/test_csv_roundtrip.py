@@ -215,10 +215,14 @@ class EndToEnd(unittest.TestCase):
                    DATABASE_URL=f"sqlite:///{cls.db_path.as_posix()}",
                    ADMIN_PASSWORD="test-pass", SUPABASE_URL="",
                    SUPABASE_SERVICE_KEY="", PYTHONDONTWRITEBYTECODE="1")
+        # stderr to a file, not a pipe nobody reads: once the app's log
+        # output filled the pipe buffer the server blocked and tests hung.
+        cls.log_path = Path(_TMP, "e2e_server.log")
+        cls.log = open(cls.log_path, "wb")
         cls.server = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "main:app",
              "--port", str(cls.port), "--log-level", "warning"],
-            cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=cls.log)
         cls.base = f"http://127.0.0.1:{cls.port}"
         deadline = time.time() + 30
         while time.time() < deadline:
@@ -227,7 +231,8 @@ class EndToEnd(unittest.TestCase):
                 break
             except OSError:
                 if cls.server.poll() is not None:
-                    raise RuntimeError(cls.server.stderr.read().decode())
+                    cls.log.close()
+                    raise RuntimeError(cls.log_path.read_text(errors="replace"))
                 time.sleep(0.3)
         else:
             raise RuntimeError("server did not start")
@@ -240,7 +245,7 @@ class EndToEnd(unittest.TestCase):
     def tearDownClass(cls):
         cls.server.terminate()
         cls.server.wait(10)
-        cls.server.stderr.close()
+        cls.log.close()
 
     def test_template_download_import_save(self):
         resp = self.opener.open(self.base + "/admin/csv-template")

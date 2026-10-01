@@ -2,6 +2,8 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime
 
+from timeutil import utc_now
+
 
 class Quiz(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -10,7 +12,7 @@ class Quiz(SQLModel, table=True):
     read_time: int = Field(default=5)
     scoring_mode: str = Field(default="speed")   # speed | accuracy
     streak_bonus: bool = Field(default=False)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
     last_played: Optional[datetime] = None
 
 
@@ -31,7 +33,7 @@ class QuizSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     quiz_id: int = Field(foreign_key="quiz.id")
     room_code: str
-    played_at: datetime = Field(default_factory=datetime.utcnow)
+    played_at: datetime = Field(default_factory=utc_now)
     student_count: int = Field(default=0)
     class_id: Optional[int] = Field(default=None, foreign_key="classgroup.id")
 
@@ -60,7 +62,7 @@ class QuestionStat(SQLModel, table=True):
 class ClassGroup(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Student(SQLModel, table=True):
@@ -74,8 +76,8 @@ class Assignment(SQLModel, table=True):
     quiz_id: int = Field(foreign_key="quiz.id")
     class_id: Optional[int] = Field(default=None, foreign_key="classgroup.id")
     code: str                                  # share code used in /assignment/{code}
-    deadline: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    deadline: Optional[datetime] = None        # UTC; entered/shown in APP_TIMEZONE
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class AssignmentResult(SQLModel, table=True):
@@ -86,7 +88,7 @@ class AssignmentResult(SQLModel, table=True):
     score: int = Field(default=0)
     correct_count: int = Field(default=0)
     total_questions: int = Field(default=0)
-    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+    submitted_at: datetime = Field(default_factory=utc_now)
     answers_json: str = Field(default="[]")    # per-question review payload
 
 
@@ -104,8 +106,8 @@ class LiveSession(SQLModel, table=True):
     quiz_id: int = Field(foreign_key="quiz.id")
     state: str = Field(default="lobby")
     current_question_index: int = Field(default=-1)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_activity: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    last_activity: datetime = Field(default_factory=utc_now)
     state_json: str = Field(default="{}")   # everything else — see game_manager._dump_session_state
 
 

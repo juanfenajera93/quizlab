@@ -19,7 +19,7 @@
     <div>
       <h1>Detalle de Sesión</h1>
       <p style="margin:4px 0 0;color:var(--text-muted);font-size:14px;text-transform:none;letter-spacing:normal">
-        {{ session.played_at.strftime('%d %b %Y  %H:%M') }} · Sala {{ session.room_code }} · {{ session.student_count }} estudiante{{ 's' if session.student_count != 1 else '' }}
+        {{ session.played_at|local('%d %b %Y  %H:%M') }} · Sala {{ session.room_code }} · {{ session.student_count }} estudiante{{ 's' if session.student_count != 1 else '' }}
       </p>
     </div>
   </div>

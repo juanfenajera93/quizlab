@@ -5,6 +5,7 @@ import time
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
 from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 logger = logging.getLogger("quizlab.startup")
 
@@ -143,6 +144,30 @@ def _migrate(conn, t0, pg):
         logger.info("startup: migration: %s", ddl)
         conn.exec_driver_sql(ddl)
     _step("column migrations checked", t0)
+
+    if pg:
+        _migrate_timestamps_to_timestamptz(conn)
+        _step("timestamp columns checked", t0)
+
+
+def _migrate_timestamps_to_timestamptz(conn):
+    """Postgres: datetime columns created before the app stored aware UTC are
+    `timestamp without time zone` holding naive UTC. Convert them to
+    timestamptz, reading the existing values as UTC. Idempotent: only
+    columns still without a time zone are touched; a rerun does nothing.
+    (SQLite has no such type; UTCDateTime reads its naive values as UTC.)"""
+    wanted = {(t.name, c.name) for t in SQLModel.metadata.sorted_tables
+              for c in t.columns if isinstance(c.type, UTCDateTime)}
+    naive = conn.exec_driver_sql(
+        "SELECT table_name, column_name FROM information_schema.columns "
+        "WHERE table_schema = current_schema() "
+        "AND data_type = 'timestamp without time zone'").fetchall()
+    for table, column in sorted(set(map(tuple, naive)) & wanted):
+        ddl = (f'ALTER TABLE "{table}" ALTER COLUMN "{column}" '
+               f'TYPE TIMESTAMP WITH TIME ZONE USING "{column}" '
+               "AT TIME ZONE 'UTC'")
+        logger.info("startup: migration: %s", ddl)
+        conn.exec_driver_sql(ddl)
 
 
 def get_session():

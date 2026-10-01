@@ -18,7 +18,7 @@
       <p style="margin:4px 0 0;color:var(--text-muted);font-size:14px;text-transform:none;letter-spacing:normal">
         {{ quiz.name }}
         {% if class_group %} · {{ class_group.name }}{% endif %}
-        {% if assignment.deadline %} · límite {{ assignment.deadline.strftime('%d %b %Y %H:%M') }}{% endif %}
+        {% if assignment.deadline %} · límite {{ assignment.deadline|local('%d %b %Y %H:%M') }} (hora de Ecuador){% endif %}
         {% if closed %} · <strong>CERRADA</strong>{% endif %}
       </p>
     </div>
@@ -44,7 +44,7 @@
           <td>{{ s.nickname }}</td>
           <td style="text-align:right;font-family:'Syne Mono',monospace">{{ s.score }}</td>
           <td style="text-align:right">{{ s.correct_count }}/{{ s.total_questions }}</td>
-          <td style="color:var(--text-muted)">{{ s.submitted_at.strftime('%d %b %H:%M') }}</td>
+          <td style="color:var(--text-muted)">{{ s.submitted_at|local('%d %b %H:%M') }}</td>
         </tr>
         {% endfor %}
       </tbody>

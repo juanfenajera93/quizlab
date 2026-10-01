@@ -46,9 +46,9 @@
   <h3 class="course-group-heading">Evolución</h3>
   <div class="score-bars">
     {% for h in history %}
-    <div class="score-bar-col" title="{{ h.quiz_name }} — {{ h.score }} pts ({{ h.played_at.strftime('%d %b') }})">
+    <div class="score-bar-col" title="{{ h.quiz_name }} — {{ h.score }} pts ({{ h.played_at|local('%d %b') }})">
       <div class="score-bar-fill" style="height:{{ h.bar_pct }}%"></div>
-      <span class="score-bar-label">{{ h.played_at.strftime('%d/%m') }}</span>
+      <span class="score-bar-label">{{ h.played_at|local('%d/%m') }}</span>
     </div>
     {% endfor %}
   </div>
@@ -68,7 +68,7 @@
       <tbody>
         {% for h in history|reverse %}
         <tr>
-          <td>{{ h.played_at.strftime('%d %b %Y %H:%M') }}</td>
+          <td>{{ h.played_at|local('%d %b %Y %H:%M') }}</td>
           <td>{{ h.quiz_name }}</td>
           <td style="text-align:right;font-family:'Syne Mono',monospace">{{ h.score }}</td>
           <td style="text-align:right">#{{ h.rank }} de {{ h.student_count }}</td>

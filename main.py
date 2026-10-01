@@ -8,7 +8,6 @@ import os
 import urllib.error
 import urllib.request
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 import qrcode
@@ -63,6 +62,7 @@ from models import (
     QuestionStat,
     Student,
 )
+from timeutil import format_local, parse_local, timezone_label, utc_now
 
 load_dotenv()
 
@@ -111,6 +111,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 templates = Jinja2Templates(directory="templates")
+# {{ some_utc_datetime | local }} or | local('%d/%m'): shown in APP_TIMEZONE
+templates.env.filters["local"] = format_local
 
 
 @app.on_event("startup")
@@ -737,7 +739,7 @@ async def export_session_csv(request: Request, session_id: int,
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Quiz", quiz.name if quiz else "", "Sala", qs.room_code,
-                     "Fecha", qs.played_at.strftime("%Y-%m-%d %H:%M")])
+                     "Fecha", format_local(qs.played_at, "%Y-%m-%d %H:%M")])
     writer.writerow([])
     writer.writerow(["rank", "nombre", "puntos"])
     for r in results:
@@ -790,12 +792,13 @@ async def quiz_assignments(request: Request, quiz_id: int,
             "created_at": a.created_at,
             "class_name": cg.name if cg else None,
             "submissions": len(subs),
-            "closed": bool(a.deadline and a.deadline < datetime.utcnow()),
+            "closed": _is_closed(a),
         })
     classes = db.exec(select(ClassGroup).order_by(ClassGroup.name)).all()
     return templates.TemplateResponse(
         "admin_assignments.html",
-        {"request": request, "quiz": quiz, "assignments": rows, "classes": classes},
+        {"request": request, "quiz": quiz, "assignments": rows, "classes": classes,
+         "tz_label": timezone_label()},
     )
 
 
@@ -808,12 +811,13 @@ async def create_assignment(request: Request, quiz_id: int,
     quiz = db.get(Quiz, quiz_id)
     if not quiz:
         raise HTTPException(status_code=404)
-    dl = None
-    if deadline.strip():
-        try:
-            dl = datetime.fromisoformat(deadline.strip())
-        except ValueError:
-            dl = None
+    # The teacher types Ecuador wall-clock time (APP_TIMEZONE); stored as UTC
+    try:
+        dl = parse_local(deadline)
+    except ValueError:
+        logger.warning("assignment for quiz %s: unreadable deadline %r ignored",
+                       quiz_id, deadline)
+        dl = None
     cid = int(class_id) if class_id.strip().isdigit() else None
     a = Assignment(quiz_id=quiz_id, class_id=cid, deadline=dl,
                    code=_generate_assignment_code(db))
@@ -859,7 +863,7 @@ async def assignment_detail(request: Request, assignment_id: int,
         "admin_assignment_detail.html",
         {"request": request, "assignment": a, "quiz": quiz, "class_group": cg,
          "submissions": subs,
-         "closed": bool(a.deadline and a.deadline < datetime.utcnow())},
+         "closed": _is_closed(a), "tz_label": timezone_label()},
     )
 
 
@@ -870,11 +874,16 @@ async def assignment_page(request: Request, code: str):
     )
 
 
+def _is_closed(a: Assignment) -> bool:
+    # Both sides aware UTC (naive legacy values are read back as UTC)
+    return bool(a.deadline and a.deadline <= utc_now())
+
+
 def _get_open_assignment(code: str, db: Session):
     a = db.exec(select(Assignment).where(Assignment.code == code.upper())).first()
     if not a:
         return None, "not_found"
-    if a.deadline and a.deadline < datetime.utcnow():
+    if _is_closed(a):
         return a, "closed"
     return a, None
 
@@ -903,7 +912,11 @@ async def api_assignment_info(code: str, db: Session = Depends(get_session)):
         "ok": True,
         "quiz_name": quiz.name if quiz else "",
         "question_count": len(questions),
+        # ISO in UTC with offset, plus the Ecuador wall-clock text to show
         "deadline": a.deadline.isoformat() if a.deadline else None,
+        "deadline_display": (format_local(a.deadline, "%d/%m/%Y %H:%M")
+                             if a.deadline else None),
+        "timezone": timezone_label(),
         "closed": err == "closed",
         "has_roster": a.class_id is not None,
         "roster_names": roster_names,
@@ -1192,7 +1205,7 @@ async def host_launch(
     quiz = db.get(Quiz, quiz_id)
     if not quiz:
         raise HTTPException(status_code=404)
-    quiz.last_played = datetime.utcnow()
+    quiz.last_played = utc_now()
     db.add(quiz)
     db.commit()
     return templates.TemplateResponse(
